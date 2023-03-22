@@ -1,0 +1,41 @@
+2023-03-22  Guoping Li <guoping.li@amlogic.com>
+	* change overlay plugin to support face detect and yolo v3.
+        * use thread to draw rectangle to reander buffer, improve performance
+
+2019-04-30  Jun Zhang <jun.zhang@amlogic.com>
+
+	* bugfix, watermark image width/height not correctly get if
+	  the input value <=0
+
+2019-04-22  Jun Zhang <jun.zhang@amlogic.com>
+
+	* improve stability of multiple facenet result
+
+2019-04-19  Jun Zhang <jun.zhang@amlogic.com>
+
+	* bugfix, crash while exit due to the release of unmalloced string
+
+2019-04-17  Jun Zhang <jun.zhang@amlogic.com>
+
+	* refine facenet/nn events dealing procedure
+
+2019-04-04  Jun Zhang <jun.zhang@amlogic.com>
+
+	* add facenet rect and info
+
+2019-03-20  Jun Zhang <jun.zhang@amlogic.com>
+
+	* add nn rect
+
+2019-03-18  Jun Zhang <jun.zhang@amlogic.com>
+
+	* fix dynamic surface bug
+
+2019-02-14  Jun Zhang <jun.zhang@amlogic.com>
+
+	* fix bug of memory mapping flag
+
+2019-01-14  Jun Zhang <jun.zhang@amlogic.com>
+
+	* initial version
+

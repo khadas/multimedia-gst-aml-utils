@@ -1,0 +1,19 @@
+2023-03-22  Guoping Li <guoping.li@amlogic.com>
+	* change nn plugin to support face detect and yolo v3.
+
+2019-04-22  Jun Zhang <jun.zhang@amlogic.com>
+
+	* reduce the input frequency to improve the pipeline latency.
+
+2019-04-17  Jun Zhang <jun.zhang@amlogic.com>
+
+	* change plugin from basesink to transform class, chain with facenet plugin
+	directly to reduce the pipeline latency.
+
+2019-04-09  Jun Zhang <jun.zhang@amlogic.com>
+
+	* move lib loading procedure to open/close
+
+2019-03-20  Jun Zhang <jun.zhang@amlogic.com>
+
+	* initial version

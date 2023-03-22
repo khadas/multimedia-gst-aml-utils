@@ -1,0 +1,6 @@
+
+WHAT IT IS
+----------
+
+gst-plugin-amloverlay is a video overlay GStreamer plugin.
+It will draw some information to the video layer.
