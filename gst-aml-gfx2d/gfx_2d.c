@@ -32,7 +32,7 @@
 
 
 GFX_Handle gfx_init() {
-  GFX_INFO("+++[%s]", __FUNCTION__);
+  GFX_INFO("Enter");
 
   gfx_info *pInfo = malloc(sizeof(gfx_info));
   if (NULL == pInfo)  {
@@ -54,7 +54,7 @@ GFX_Return gfx_deinit(GFX_Handle handle) {
   if (NULL == handle) return GFX_Ret_Error;
   gfx_info *pInfo = (gfx_info *)handle;
 
-  GFX_INFO("+++[%s] handle=%p", __FUNCTION__, handle);
+  GFX_INFO(" handle=%p", handle);
 
   aml_ge2d_exit(&pInfo->ge2d);
 
@@ -65,14 +65,14 @@ GFX_Return gfx_deinit(GFX_Handle handle) {
 
 
 
-GFX_Return gfx_sync_cmd(GFX_Handle handle){
+GFX_Return gfx_sync_cmd(GFX_Handle handle) {
+# if GFX_SUPPORT_CMD_Q
   if (NULL == handle) return GFX_Ret_Error;
+
+  GFX_INFO("Enter handle=%p", handle);
   gfx_info *info = (gfx_info *)handle;
   aml_ge2d_info_t *pge2dinfo = &info->ge2d.ge2dinfo;
 
-  GFX_INFO("+++[%s] handle=%p", __FUNCTION__, handle);
-
-# if GFX_SUPPORT_CMD_Q
   if (aml_ge2d_post_queue(pge2dinfo) != ge2d_success) {
     GFX_ERROR("aml_ge2d_post_queue failed");
     return GFX_Ret_Error;
@@ -95,8 +95,8 @@ GFX_Return gfx_fillrect(GFX_Handle handle,
   gfx_info *info = (gfx_info *)handle;
   aml_ge2d_info_t *pge2dinfo = &info->ge2d.ge2dinfo;
 
-  GFX_INFO("+++[%s] handle=%p pBuf(%d %d (%d %d)) pRect(%d %d %d %d) color=%x",
-    __FUNCTION__, handle,
+  GFX_INFO("Enter handle=%p pBuf(%d %d (%d %d)) pRect(%d %d %d %d) color=%x",
+    handle,
     pBuf->fd, pBuf->is_ionbuf, pBuf->size.w, pBuf->size.h,
     pRect->x, pRect->y, pRect->w, pRect->h, color);
 
@@ -122,6 +122,7 @@ GFX_Return gfx_fillrect(GFX_Handle handle,
   pge2dinfo->ge2d_op = AML_GE2D_FILLRECTANGLE;
   pge2dinfo->blend_mode = BLEND_MODE_PREMULTIPLIED;
 
+  gfx_print_params(pge2dinfo);
   if (gfx_do_ge2d_cmd(pge2dinfo, sync) < 0) {
     GFX_ERROR("gfx_do_ge2d_cmd failed");
     gfx_print_params(pge2dinfo);
@@ -138,15 +139,15 @@ GFX_Return gfx_drawrect(GFX_Handle handle,
                         GFX_Rect *pRect,
                         int color,
                         int thickness,
-                        int sync){
+                        int sync) {
   if (NULL == handle) return GFX_Ret_Error;
   if (NULL == pBuf) return GFX_Ret_Error;
   if (NULL == pRect) return GFX_Ret_Error;
   gfx_info *info = (gfx_info *)handle;
   aml_ge2d_info_t *pge2dinfo = &info->ge2d.ge2dinfo;
 
-  GFX_INFO("+++[%s] handle=%p pBuf(%d %d (%d %d)) pRect(%d %d %d %d) color=%x thickness=%x",
-    __FUNCTION__, handle,
+  GFX_INFO("Enter handle=%p pBuf(%d %d (%d %d)) pRect(%d %d %d %d) color=%x thickness=%x",
+    handle,
     pBuf->fd, pBuf->is_ionbuf, pBuf->size.w, pBuf->size.h,
     pRect->x, pRect->y, pRect->w, pRect->h, color, thickness);
 
@@ -186,7 +187,7 @@ GFX_Return gfx_drawrect(GFX_Handle handle,
     return GFX_Ret_Error;
   }
 
-  GFX_INFO("+++[%s] outer rectangle done", __FUNCTION__);
+  GFX_INFO("Enter outer rectangle done");
 
   // clear ge2d structure
   //gfx_clear_ge2d_info(pge2dinfo);
@@ -220,9 +221,54 @@ GFX_Return gfx_drawrect(GFX_Handle handle,
 
 
 
-static void gfx_fillpixelbycolor(GFX_Buf *pBuf, unsigned char *pMemory, int color)
+static void gfx_fillpixelbycolor(unsigned char *pMemory, int color)
 {
   *(int *)pMemory=color;
+}
+
+
+
+
+GFX_Return gfx_fillrect_software(GFX_Handle handle,
+                                  GFX_Buf *pBuf,
+                                  unsigned char *pMemory,
+                                  GFX_Rect *pRect,
+                                  int color)
+{
+  if (NULL == handle) return GFX_Ret_Error;
+  if (NULL == pBuf) return GFX_Ret_Error;
+  if (NULL == pMemory) return GFX_Ret_Error;
+  if (NULL == pRect) return GFX_Ret_Error;
+
+  GFX_INFO("handle=%p pBuf(%d %d (%d %d)) pMemory(%p) pRect(%d %d %d %d) color=%x",
+    handle,
+    pBuf->fd, pBuf->is_ionbuf, pBuf->size.w, pBuf->size.h, pMemory,
+    pRect->x, pRect->y, pRect->w, pRect->h, color);
+
+  if (GFX_Ret_OK != gfx_check_buf_rect(pBuf, pRect))
+  {
+    return GFX_Ret_Error;
+  }
+
+  int pitch = (((pBuf->size.w * 4) + 31) & ~31);
+  int i = 0;
+  int j = 0;
+
+  int x = pRect->x;
+  int y = pRect->y;
+  int w = pRect->w;
+  int h = pRect->h;
+
+  // top
+  for (i=y; i<y+h; i++)
+  {
+    for (j=x; j<x+w; j++)
+    {
+      gfx_fillpixelbycolor(&pMemory[i*pitch+j*4], color);
+    }
+  }
+
+  return GFX_Ret_OK;
 }
 
 
@@ -239,8 +285,8 @@ GFX_Return gfx_drawrect_software(GFX_Handle handle,
   if (NULL == pMemory) return GFX_Ret_Error;
   if (NULL == pRect) return GFX_Ret_Error;
 
-  GFX_INFO("[%s] handle=%p pBuf(%d %d (%d %d)) pMemory(%p) pRect(%d %d %d %d) color=%x thickness=%x",
-    __FUNCTION__, handle,
+  GFX_INFO("handle=%p pBuf(%d %d (%d %d)) pMemory(%p) pRect(%d %d %d %d) color=%x thickness=%d",
+    handle,
     pBuf->fd, pBuf->is_ionbuf, pBuf->size.w, pBuf->size.h, pMemory,
     pRect->x, pRect->y, pRect->w, pRect->h, color, thickness);
 
@@ -256,69 +302,47 @@ GFX_Return gfx_drawrect_software(GFX_Handle handle,
   }
 
   int pitch = (((pBuf->size.w * 4) + 31) & ~31);
-  int size = pitch*pBuf->size.h;
   int i = 0;
   int j = 0;
-  int *pPixel = NULL;
 
   int x = pRect->x;
   int y = pRect->y;
   int w = pRect->w;
   int h = pRect->h;
 
-  // GST_INFO("pMemory=%p, pRect(%d %d %d %d)",
-  //   pMemory, pRect->x, pRect->y, pRect->w, pRect->h);
-
   // top
   for (i=y; i<y+thickness; i++)
   {
     for (j=x; j<x+w; j++)
     {
-      //if(&pMemory[i*pitch+j*4] >= pMemory+size) GFX_ERROR("[%s]%d, %p, %p, size=%d", __FUNCTION__, __LINE__, &pMemory[i*pitch+j*4], pMemory, size);
-      gfx_fillpixelbycolor(pBuf, &pMemory[i*pitch+j*4], color);
-
-      // pPixel = (int *)&pMemory[i*pitch+j*4];
-      // *pPixel = color;
-      // if (j == x && i == y) GFX_INFO ("%p=%x", pPixel, *pPixel);
+      gfx_fillpixelbycolor(&pMemory[i*pitch+j*4], color);
     }
   }
 
   // bottom
-  for (i=y+h-6; i<y+h; i++)
+  for (i=y+h-thickness; i<y+h; i++)
   {
     for (j=x; j<x+w; j++)
     {
-      //if(&pMemory[i*pitch+j*4] >= pMemory+size) GFX_ERROR("[%s]%d, %p, %p, size=%d", __FUNCTION__, __LINE__, &pMemory[i*pitch+j*4], pMemory, size);
-      gfx_fillpixelbycolor(pBuf, &pMemory[i*pitch+j*4], color);
-      // pPixel = (int *)&pMemory[i*pitch+j*4];
-      // *pPixel = color;
-      // if (j == x && i == y+h-6) GFX_INFO ("%p=%x", pPixel, *pPixel);
+      gfx_fillpixelbycolor(&pMemory[i*pitch+j*4], color);
     }
   }
 
   // left
-  for (i=y+6; i<y+h-6; i++)
+  for (i=y+thickness; i<y+h-thickness; i++)
   {
-    for (j=x; j<x+6; j++)
+    for (j=x; j<x+thickness; j++)
     {
-      //if(&pMemory[i*pitch+j*4] >= pMemory+size) GFX_ERROR("[%s]%d, %p, %p, size=%d", __FUNCTION__, __LINE__, &pMemory[i*pitch+j*4], pMemory, size);
-      gfx_fillpixelbycolor(pBuf, &pMemory[i*pitch+j*4], color);
-      // pPixel = (int *)&pMemory[i*pitch+j*4];
-      // *pPixel = color;
-      // if (j == x && i == y+6) GFX_INFO ("%p=%x", pPixel, *pPixel);
+      gfx_fillpixelbycolor(&pMemory[i*pitch+j*4], color);
     }
   }
 
   // right
-  for (i=y+6; i<y+h-6; i++)
+  for (i=y+thickness; i<y+h-thickness; i++)
   {
-    for (j=x+w-6; j<x+w; j++)
+    for (j=x+w-thickness; j<x+w; j++)
     {
-      //if(&pMemory[i*pitch+j*4] >= pMemory+size) GFX_ERROR("[%s]%d, %p, %p, size=%d", __FUNCTION__, __LINE__, &pMemory[i*pitch+j*4], pMemory, size);
-      gfx_fillpixelbycolor(pBuf, &pMemory[i*pitch+j*4], color);
-      // pPixel = (int *)&pMemory[i*pitch+j*4];
-      // *pPixel = color;
-      // if (j == x+w-6 && i == y+6) GFX_INFO ("%p=%x", pPixel, *pPixel);
+      gfx_fillpixelbycolor(&pMemory[i*pitch+j*4], color);
     }
   }
 
@@ -335,7 +359,7 @@ GFX_Return gfx_blend(GFX_Handle handle,
                      GFX_Buf *pOutBuf,
                      GFX_Rect *pOutRect,
                      unsigned char alpha,
-                     int sync){
+                     int sync) {
   if (NULL == handle) return GFX_Ret_Error;
   if (NULL == pBottomBuf) return GFX_Ret_Error;
   if (NULL == pBottomRect) return GFX_Ret_Error;
@@ -346,11 +370,11 @@ GFX_Return gfx_blend(GFX_Handle handle,
   gfx_info *info = (gfx_info *)handle;
   aml_ge2d_info_t *pge2dinfo = &info->ge2d.ge2dinfo;
 
-  GFX_INFO("+++[%s] handle=%p "\
+  GFX_INFO("Enter handle=%p "\
     "pBottomBuf(%d %d (%d %d)) pBottomRect(%d %d %d %d) "\
     "pTopBuf(%d %d (%d %d)) pTopRect(%d %d %d %d) "\
     "pOutBuf(%d %d (%d %d)) pOutRect(%d %d %d %d) alpha=%d",
-    __FUNCTION__, handle,
+    handle,
     pBottomBuf->fd, pBottomBuf->is_ionbuf, pBottomBuf->size.w, pBottomBuf->size.h,
     pBottomRect->x, pBottomRect->y, pBottomRect->w, pBottomRect->h,
     pTopBuf->fd, pTopBuf->is_ionbuf, pTopBuf->size.w, pTopBuf->size.h,
@@ -422,10 +446,10 @@ GFX_Return gfx_stretchblit(GFX_Handle handle,
   gfx_info *info = (gfx_info *)handle;
   aml_ge2d_info_t *pge2dinfo = &info->ge2d.ge2dinfo;
 
-  GFX_INFO("+++[%s] handle=%p "\
+  GFX_INFO("Enter handle=%p "\
     "pInBuf(%d %d (%d %d)) pInRect(%d %d %d %d) "\
     "pOutBuf(%d %d (%d %d)) pOutRect(%d %d %d %d)",
-    __FUNCTION__, handle,
+    handle,
     pInBuf->fd, pInBuf->is_ionbuf, pInBuf->size.w, pInBuf->size.h,
     pInRect->x, pInRect->y, pInRect->w, pInRect->h,
     pOutBuf->fd, pOutBuf->is_ionbuf, pOutBuf->size.w, pOutBuf->size.h,
@@ -505,27 +529,20 @@ GFX_Return gfx_updateDirtyArea(GFX_Buf *pBuf,
     return GFX_Ret_OK;
   }
 
+  GFX_Rect rect = {0};
+
   // Union the base rect and new rect together
-  // turn width and height at first
-  if (pBaseRect->x+pBaseRect->w < pNewRect->x+pNewRect->w)
-  {
-    pBaseRect->w = pNewRect->x+pNewRect->w-pBaseRect->x;
-  }
 
-  if (pBaseRect->y+pBaseRect->h < pNewRect->y+pNewRect->h)
-  {
-    pBaseRect->h = pNewRect->y+pNewRect->h-pBaseRect->y;
-  }
+  rect.x = MIN(pBaseRect->x, pNewRect->x);
+  rect.y = MIN(pBaseRect->y, pNewRect->y);
 
-  // turn left and top
-  if (pBaseRect->x > pNewRect->x)
-  {
-    pBaseRect->x = pNewRect->x;
-  }
-  if (pBaseRect->y > pNewRect->y)
-  {
-    pBaseRect->y = pNewRect->y;
-  }
+  int right = MAX(pBaseRect->x+pBaseRect->w, pNewRect->x+pNewRect->w);
+  int bottom = MAX(pBaseRect->y+pBaseRect->h, pNewRect->y+pNewRect->h);
+
+  rect.w = right-rect.x;
+  rect.h = bottom-rect.y;
+
+  memcpy(pBaseRect, &rect, sizeof(GFX_Rect));
 
   return GFX_Ret_OK;
 }

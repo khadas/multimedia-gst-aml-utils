@@ -50,13 +50,14 @@
 #include <gst/video/video.h>
 
 #include "facedb.h"
-#include "imgproc.h"
 #include "jpeg.h"
 
 #include "gstamlnn.h"
 
+#include "gfx_2d.h"
+#include "gst_ge2d.h"
 
-// temp fleet for test
+// for test time
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -66,42 +67,53 @@
 //#define USE_FAKE_DETECT
 
 
+#define PRINT_FPS
+
+#ifdef PRINT_FPS
+#define PRINT_FPS_INTERVAL_S 120
+
+static int64_t get_current_time_msec(void) {
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+  return tv.tv_sec * 1000 + tv.tv_usec / 1000;
+}
+#endif
+
+
 GST_DEBUG_CATEGORY_STATIC(gst_aml_nn_debug);
 #define GST_CAT_DEFAULT gst_aml_nn_debug
 
-struct relative_pos {
+
+// must sync with gstamlnnoverlay.h
+//////////////////////////////////////////////////////////////////////
+typedef struct _NNRect {
   float left;
   float top;
   float right;
   float bottom;
-};
+}NNRect;
 
-struct facepoint_pos {
+typedef struct _NNPoint {
   float x;
   float y;
-};
+}NNPoint;
 
-#define FACE_INFO_BUFSIZE 1024
-struct nn_result {
-  struct relative_pos pos;
-  struct facepoint_pos fpos[5];
-  char info[FACE_INFO_BUFSIZE];
-};
+#define MAX_NN_LABEL_LENGTH 256
+typedef struct _NNResult {
+  NNRect pos;
+  NNPoint fpos[5];
+  int label_id;                        ///> Classification of label ID
+  char label_name[MAX_NN_LABEL_LENGTH];   ///> Label name
+}NNResult;
 
-struct nn_result_buffer {
+typedef struct _NNResultBuffer {
   gint amount; // amount of result
-  struct nn_result *results;
-};
+  NNResult *results;
+}NNResultBuffer;
+//////////////////////////////////////////////////////////////////////
 
-struct recognized_info {
-  struct listnode list;
-  gint uid;
-  gchar *name;
-  GstClockTime timestamp;
-};
 
-//#define DEFAULT_PROP_FACE_DET_MODEL DET_AML_FACE_DETECTION
-#define DEFAULT_PROP_FACE_DET_MODEL DET_YOLO_V3
+#define DEFAULT_PROP_FACE_DET_MODEL DET_AML_FACE_DETECTION
 
 #define DEFAULT_PROP_FACE_RECOG_MODEL DET_AML_FACE_RECOGNITION
 #define DEFAULT_PROP_FORMAT "uid,name"
@@ -110,11 +122,8 @@ struct recognized_info {
 #define DEFAULT_PROP_RECOG_TRIGGER_TIMEOUT 2
 #define DEFAULT_PROP_MAX_DET_NUM 10
 
-#define NN_INPUT_BUF_W 1280
-#define NN_INPUT_BUF_H 720
+
 #define NN_INPUT_BUF_FORMAT GST_VIDEO_FORMAT_RGB
-#define NN_INPUT_BUF_STRIDE NN_INPUT_BUF_W * 3
-#define NN_INPUT_BUF_SIZE NN_INPUT_BUF_STRIDE * NN_INPUT_BUF_H
 
 /* Filter signals and args */
 enum {
@@ -138,26 +147,15 @@ enum {
 #define GST_TYPE_AML_FACE_DET_MODEL (gst_aml_face_det_model_get_type())
 static GType gst_aml_face_det_model_get_type(void) {
   static GType aml_face_det_model = 0;
-  static const GEnumValue aml_face_det_models[] = {
-      {DET_YOLOFACE_V2, "yoloface-v2", "yoloface v2"},
-      {DET_MTCNN_V1, "mtcnn-v1", "mtcnn v1"},
-      {DET_MTCNN_V2, "mtcnn-v2", "mtcnn v2"},
-      {DET_AML_FACE_DETECTION, "aml_face_detection", "aml_face_detection"},
-      {DET_BUTT, "disable", "disable"},
-      //    {DET_YOLO_V2, "yolo-v2", "yolo v2"},
-      //    {DET_YOLO_V3, "yolo-v3", "yolo v3"},
-      //    {DET_YOLO_TINY, "yolo-tiny", "yolo tiny"},
-      //    {DET_SSD, "ssd", "ssd"},
-      //    {DET_FASTER_RCNN, "faster-rcnn", "faster rcnn"},
-      //    {DET_DEEPLAB_V1, "deeplab-v1", "deeplab v1"},
-      //    {DET_DEEPLAB_V2, "deeplab-v2", "deeplab v2"},
-      //    {DET_DEEPLAB_V3, "deeplab-v3", "deeplab v3"},
+  static const GEnumValue aml_detection_models[] = {
+      {DET_AML_FACE_DETECTION, "amlfd", "aml_face_detection"},
+      {DET_YOLO_V3, "yolov3", "yolo v3"},
       {0, NULL, NULL},
   };
 
   if (!aml_face_det_model) {
     aml_face_det_model =
-        g_enum_register_static("GstAMLFaceDetectModel", aml_face_det_models);
+        g_enum_register_static("GstAMLFaceDetectModel", aml_detection_models);
   }
   return aml_face_det_model;
 }
@@ -183,8 +181,8 @@ static GType gst_aml_face_recog_model_get_type(void) {
  */
 #define GST_VIDEO_FORMATS                                                      \
   "{"                                                                          \
-  " RGB, RGBA, RGBx,"                                                          \
-  " BGR, BGRA,"                                                                \
+  " RGBA, RGBx, RGB, "                                                          \
+  " BGRA, BGR, "                                                                \
   " YV12, NV16, NV21, UYVY, NV12,"                                             \
   " I420"                                                                      \
   " } "
@@ -227,59 +225,11 @@ static gboolean gst_aml_nn_set_caps(GstBaseTransform *base, GstCaps *incaps,
 
 static gboolean gst_aml_nn_sink_event(GstBaseTransform *base, GstEvent *event);
 
+static gboolean detection_init(GstAmlNN *self);
 static gpointer amlnn_process(void *data);
-static void push_result(GstBaseTransform *base, struct nn_result_buffer *resbuf);
+static void push_result(GstBaseTransform *base, NNResultBuffer *resbuf);
 /* GObject vmethod implementations */
 
-static void trigger_recognized(GstAmlNN *self, gint uid, gchar* name) {
-  struct listnode *pos, *q;
-  gboolean found = FALSE;
-  gboolean trigger = FALSE;
-  struct timeval tv;
-  gettimeofday(&tv, 0);
-  GstClockTime now = GST_TIMEVAL_TO_TIME(tv);
-  if (!list_empty(&self->recognized_list)) {
-    list_for_each_safe(pos, q, &self->recognized_list) {
-      struct recognized_info *info =
-        list_entry (pos, struct recognized_info, list);
-      if (info->uid == uid) {
-        found = TRUE;
-        GstClockTimeDiff diff = GST_CLOCK_DIFF(info->timestamp, now);
-        if (GST_TIME_AS_SECONDS(diff) >= self->recog_trigger_timeout) {
-          info->timestamp = now;
-          trigger = TRUE;
-        }
-      }
-    }
-  }
-
-  if (!found) {
-    struct recognized_info *info = g_new(struct recognized_info, 1);
-    info->uid = uid;
-    info->name = g_strdup(name);
-    info->timestamp = now;
-    list_init (&info->list);
-    list_add_tail(&self->recognized_list, &info->list);
-    trigger = TRUE;
-  }
-
-  if (trigger) {
-    g_signal_emit(self, gst_amlnn_signals[SIGNAL_FACE_RECOGNIZED], 0, uid,
-                  name);
-  }
-}
-
-static void cleanup_recognized_list(GstAmlNN *self) {
-  struct listnode *pos, *q;
-  if (!list_empty(&self->recognized_list)) {
-    list_for_each_safe(pos, q, &self->recognized_list) {
-      struct recognized_info *info =
-        list_entry (pos, struct recognized_info, list);
-      list_remove (pos);
-      g_free(info->name);
-    }
-  }
-}
 
 /* initialize the amlnn's class */
 static void gst_aml_nn_class_init(GstAmlNNClass *klass) {
@@ -386,21 +336,28 @@ static void gst_aml_nn_init(GstAmlNN *nn) {
   nn->db_param.bstore_face = FALSE;
   nn->custimg = NULL;
 
-  nn->imgproc = NULL;
-  nn->prebuf.width = NN_INPUT_BUF_W;
-  nn->prebuf.height = NN_INPUT_BUF_H;
-  nn->prebuf.size = NN_INPUT_BUF_SIZE;
-  nn->prebuf.format = NN_INPUT_BUF_FORMAT;
+  nn->handle = NULL;
 
-  g_cond_init(&nn->_cond);
-  g_mutex_init(&nn->_mutex);
-  nn->_ready = FALSE;
+  g_cond_init(&nn->m_cond);
+  g_mutex_init(&nn->m_mutex);
+  g_mutex_init(&nn->face_det.buffer_lock);
+
+  nn->face_det.prepare_idx = -1;
+  nn->face_det.cur_nn_idx = -1;
+  nn->face_det.next_nn_idx = -1;
+
+  nn->m_ready = FALSE;
 
   list_init(&nn->recognized_list);
   nn->recog_trigger_timeout = DEFAULT_PROP_RECOG_TRIGGER_TIMEOUT;
 
   // set debug log level
   det_set_log_config(DET_DEBUG_LEVEL_WARN,DET_LOG_TERMINAL);
+
+  // init DMA
+  if (nn->dmabuf_alloc == NULL) {
+    nn->dmabuf_alloc = gst_amlion_allocator_obtain();
+  }
 }
 
 static gboolean open_model(ModelInfo *m) {
@@ -441,9 +398,11 @@ static gboolean close_model(ModelInfo *m) {
   if (!m->initialized)
     return TRUE;
 
-  if (m->outmem) {
-    gst_memory_unref (m->outmem);
-    m->outmem = NULL;
+  for (int i=0; i<NN_BUF_CNT; i++) {
+    if (m->nn_input[i].memory) {
+      gst_memory_unref (m->nn_input[i].memory);
+      m->nn_input[i].memory = NULL;
+    }
   }
 
   if (m->model == DET_BUTT)
@@ -493,7 +452,7 @@ struct idle_task_data {
 };
 
 static gboolean idle_close_model(struct idle_task_data *data) {
-  if (data == NULL || data->self == NULL || data->self->_running == FALSE ||
+  if (data == NULL || data->self == NULL || data->self->m_running == FALSE ||
       data->u.model.minfo == NULL) {
     return G_SOURCE_REMOVE;
   }
@@ -501,7 +460,7 @@ static gboolean idle_close_model(struct idle_task_data *data) {
   GstAmlNN *self = data->self;
   ModelInfo *minfo = data->u.model.minfo;
 
-  g_mutex_lock(&self->_mutex);
+  g_mutex_lock(&self->m_mutex);
   // close detect model for the next reinitialization
   close_model(minfo);
   minfo->model = data->u.model.new_model;
@@ -509,57 +468,57 @@ static gboolean idle_close_model(struct idle_task_data *data) {
     // notify the overlay to clear info
     push_result (&self->element, NULL);
   }
-  g_mutex_unlock(&self->_mutex);
+  g_mutex_unlock(&self->m_mutex);
 
   g_free(data);
   return G_SOURCE_REMOVE;
 }
 
 static gboolean idle_close_db(struct idle_task_data *data) {
-  if (data == NULL || data->self == NULL || data->self->_running == FALSE ||
+  if (data == NULL || data->self == NULL || data->self->m_running == FALSE ||
       data->u.db.file == NULL) {
     return G_SOURCE_REMOVE;
   }
 
   GstAmlNN *self = data->self;
 
-  g_mutex_lock(&self->_mutex);
+  g_mutex_lock(&self->m_mutex);
   close_db(&self->db_param);
   g_free(self->db_param.file);
   self->db_param.file = data->u.db.file;
-  g_mutex_unlock(&self->_mutex);
+  g_mutex_unlock(&self->m_mutex);
 
   g_free(data);
   return G_SOURCE_REMOVE;
 }
 
 static gboolean idle_request_capface(struct idle_task_data *data) {
-  if (data == NULL || data->self == NULL || data->self->_running == FALSE) {
+  if (data == NULL || data->self == NULL || data->self->m_running == FALSE) {
     return G_SOURCE_REMOVE;
   }
 
   GstAmlNN *self = data->self;
 
-  g_mutex_lock(&self->_mutex);
+  g_mutex_lock(&self->m_mutex);
   self->db_param.bstore_face = TRUE;
-  g_mutex_unlock(&self->_mutex);
+  g_mutex_unlock(&self->m_mutex);
 
   g_free(data);
   return G_SOURCE_REMOVE;
 }
 
 static gboolean idle_request_capface_from_image(struct idle_task_data *data) {
-  if (data == NULL || data->self == NULL || data->self->_running == FALSE ||
+  if (data == NULL || data->self == NULL || data->self->m_running == FALSE ||
       data->u.img.file == NULL) {
     return G_SOURCE_REMOVE;
   }
 
   GstAmlNN *self = data->self;
 
-  g_mutex_lock(&self->_mutex);
+  g_mutex_lock(&self->m_mutex);
   if (self->custimg) g_free(self->custimg);
   self->custimg = data->u.img.file;
-  g_mutex_unlock(&self->_mutex);
+  g_mutex_unlock(&self->m_mutex);
 
   g_free(data);
   return G_SOURCE_REMOVE;
@@ -675,14 +634,14 @@ static gboolean gst_aml_nn_open(GstBaseTransform *base) {
 
   det_set_log_config(DET_DEBUG_LEVEL_ERROR, DET_LOG_TERMINAL);
 
-  self->imgproc = imgproc_init();
-  if (self->imgproc == NULL) {
-    GST_ERROR_OBJECT(self, "failed to initialize imgproc");
+  self->handle = gfx_init();
+  if (self->handle == NULL) {
+    GST_ERROR_OBJECT(self, "failed to initialize gfx2d");
     return FALSE;
   }
 
-  self->_running = TRUE;
-  self->_thread = g_thread_new("nn process", amlnn_process, self);
+  self->m_running = TRUE;
+  self->m_thread = g_thread_new("nn process", amlnn_process, self);
   return TRUE;
 }
 
@@ -690,25 +649,25 @@ static gboolean gst_aml_nn_close(GstBaseTransform *base) {
   GstAmlNN *self = GST_AMLNN(base);
 
   GST_DEBUG_OBJECT(self, "closing, waiting for lock");
-  self->_running = FALSE;
-  g_mutex_lock(&self->_mutex);
-  self->_ready = TRUE;
-  g_cond_signal(&self->_cond);
-  g_mutex_unlock(&self->_mutex);
-  g_thread_join(self->_thread);
+  self->m_running = FALSE;
+  g_mutex_lock(&self->m_mutex);
+  self->m_ready = TRUE;
+  g_cond_signal(&self->m_cond);
+  g_mutex_unlock(&self->m_mutex);
 
-  self->_thread = NULL;
+  g_thread_join(self->m_thread);
+  self->m_thread = NULL;
 
   if (self->custimg) {
     g_free(self->custimg);
     self->custimg = NULL;
   }
-  if (self->imgproc) {
-    imgproc_deinit (self->imgproc);
-    self->imgproc = NULL;
+
+  if (self->handle) {
+    gfx_deinit(self->handle);
+    self->handle = NULL;
   }
 
-  cleanup_recognized_list(self);
   GST_DEBUG_OBJECT(self, "closed");
 
   return TRUE;
@@ -735,7 +694,7 @@ static gboolean gst_aml_nn_set_caps(GstBaseTransform *base, GstCaps *incaps,
   GstVideoInfo info;
 
   if (!gst_video_info_from_caps(&info, incaps)) {
-    GST_ERROR_OBJECT(base, "caps are invalid");
+    GST_ERROR_OBJECT(self, "caps are invalid");
     return FALSE;
   }
   self->info = info;
@@ -748,17 +707,15 @@ static gboolean gst_aml_nn_set_caps(GstBaseTransform *base, GstCaps *incaps,
 static gboolean gst_aml_nn_sink_event(GstBaseTransform *base, GstEvent *event) {
   GstAmlNN *self = GST_AMLNN(base);
 
-  GST_INFO_OBJECT(base, "gst_aml_nn_sink_event");
-
   switch (GST_EVENT_TYPE(event)) {
   case GST_EVENT_CUSTOM_DOWNSTREAM_OOB: {
     const GstStructure *st = gst_event_get_structure(event);
 
-    GST_INFO_OBJECT(base, "gst_aml_nn_sink_event, GST_EVENT_CUSTOM_DOWNSTREAM_OOB");
+    // GST_INFO_OBJECT(self, "GST_EVENT_CUSTOM_DOWNSTREAM_OOB");
 
     if (gst_structure_has_name(st, "do-image-facecap")) {
 
-      GST_INFO_OBJECT(base, "gst_aml_nn_sink_event, do-image-facecap");
+      GST_INFO_OBJECT(self, "do-image-facecap");
 
       const GValue *value = gst_structure_get_value(st, "image-path");
       struct idle_task_data *data = g_new(struct idle_task_data, 1);
@@ -768,7 +725,7 @@ static gboolean gst_aml_nn_sink_event(GstBaseTransform *base, GstEvent *event) {
     }
     if (gst_structure_has_name(st, "do-facecap")) {
 
-      GST_INFO_OBJECT(base, "gst_aml_nn_sink_event, do-facecap");
+      GST_INFO_OBJECT(self, "do-facecap");
 
       struct idle_task_data *data = g_new(struct idle_task_data, 1);
       data->self = self;
@@ -782,24 +739,22 @@ static gboolean gst_aml_nn_sink_event(GstBaseTransform *base, GstEvent *event) {
 }
 
 static void push_result(GstBaseTransform *base,
-                        struct nn_result_buffer *resbuf) {
+                        NNResultBuffer *resbuf) {
   GstMapInfo info;
-
-  GST_INFO_OBJECT(base, "push_result, resbuf=%p", resbuf);
+  GstAmlNN *self = GST_AMLNN(base);
 
   if (resbuf == NULL || resbuf->amount <= 0) {
-
-  GST_INFO_OBJECT(base, "push_result, nn-result-clear");
+    GST_INFO_OBJECT(self, "nn-result-clear");
     GstStructure *st = gst_structure_new("nn-result-clear", NULL, NULL);
     GstEvent *event = gst_event_new_custom(GST_EVENT_CUSTOM_DOWNSTREAM_OOB, st);
     gst_element_send_event(&base->element, event);
     return;
   }
 
-  GST_INFO_OBJECT(base, "push_result, resbuf->amount=%d", resbuf->amount);
+  GST_INFO_OBJECT(self, "resbuf->amount=%d", resbuf->amount);
 
-  gint st_size = sizeof(struct nn_result_buffer);
-  gint res_size = resbuf->amount * sizeof(struct nn_result);
+  gint st_size = sizeof(NNResultBuffer);
+  gint res_size = resbuf->amount * sizeof(NNResult);
 
   GstBuffer *gstbuf = gst_buffer_new_allocate(NULL, st_size + res_size, NULL);
   if (gst_buffer_map(gstbuf, &info, GST_MAP_WRITE)) {
@@ -812,7 +767,7 @@ static void push_result(GstBaseTransform *base,
 
     GstEvent *event = gst_event_new_custom(GST_EVENT_CUSTOM_DOWNSTREAM_OOB, st);
 
-    GST_INFO_OBJECT(base, "push_result, gst_element_send_event");
+    GST_INFO_OBJECT(self, "gst_element_send_event to overlay");
 
     gst_element_send_event(&base->element, event);
   }
@@ -822,10 +777,9 @@ static void push_result(GstBaseTransform *base,
 static GstMemory *process_custom_image(GstAmlNN *self) {
   int width, height, stride;
   GstMemory *input_memory = NULL;
-  GstMemory *output_memory = NULL;
-  GstMemory *ret_memory = NULL;
   GstMapInfo minfo;
 
+  // read image to input memory
   GST_INFO_OBJECT(self, "processing image: %s", self->custimg);
   if (!jpeg_to_rgb888(self->custimg, &width, &height, &stride, NULL)) {
     goto fail_exit;
@@ -851,67 +805,18 @@ static GstMemory *process_custom_image(GstAmlNN *self) {
   gst_memory_unmap(input_memory, &minfo);
 
   GST_INFO_OBJECT(self, "image size: %dx%d", width, height);
-  if (width != self->prebuf.width || height != self->prebuf.height) {
-    // the input jpeg is not fit the current input buffer
-    // use ge2d to resize
-    struct imgproc_buf inbuf, outbuf;
-
-    inbuf.fd = gst_dmabuf_memory_get_fd(input_memory);
-    inbuf.is_ionbuf = TRUE;
-    if (inbuf.fd < 0) {
-      GST_ERROR_OBJECT(self, "failed to obtain the input memory fd");
-      goto fail_exit;
-    }
-
-    output_memory =
-          gst_allocator_alloc(self->dmabuf_alloc, self->prebuf.size, NULL);
-    if (output_memory == NULL) {
-      GST_ERROR_OBJECT(self, "failed to allocate new dma buffer");
-      goto fail_exit;
-    }
-
-    outbuf.fd = gst_dmabuf_memory_get_fd(output_memory);
-    outbuf.is_ionbuf = TRUE;
-
-    struct imgproc_pos inpos = {0, 0, width, height, width, height};
-    struct imgproc_pos outposition = {
-        0,
-        0,
-        width > self->prebuf.width ? self->prebuf.width : width,
-        height > self->prebuf.height ? self->prebuf.height : height,
-        self->prebuf.width,
-        self->prebuf.height};
-
-    if (!imgproc_crop(self->imgproc,
-                      inbuf, inpos, GST_VIDEO_FORMAT_RGB,
-                      outbuf, outposition, self->prebuf.format)) {
-      GST_ERROR_OBJECT(self, "failed to process buffer");
-      goto fail_exit;
-    }
-    ret_memory = gst_memory_ref (output_memory);
-  } else {
-    ret_memory = gst_memory_ref (input_memory);
-  }
 
 fail_exit:
   if (input_memory) {
     gst_memory_unref (input_memory);
   }
-  if (output_memory) {
-    gst_memory_unref (output_memory);
-  }
-  return ret_memory;
+  return input_memory;
 }
 
 
 
-
-static gboolean detection_process(GstAmlNN *self, struct imgproc_buf inbuf,
-                                  struct nn_result_buffer *resbuf) {
-  gboolean ret = TRUE;
-
-  GST_INFO_OBJECT(self, "face detection process begin");
-
+static gboolean detection_init(GstAmlNN *self) {
+  // open face detect model
   if (!self->face_det.initialized) {
     GST_INFO("open_model, model=%d", self->face_det.model);
     open_model(&self->face_det);
@@ -920,86 +825,60 @@ static gboolean detection_process(GstAmlNN *self, struct imgproc_buf inbuf,
   }
 
   if (!self->face_det.initialized) {
-    GST_ERROR_OBJECT(self, "face detection model not initialized");
+    GST_ERROR_OBJECT(self, "detection model not initialized");
     return FALSE;
   }
 
+  // allocate all nn input memory
+  for (int i=0; i<NN_BUF_CNT; i++) {
+    if (self->face_det.nn_input[i].memory == NULL) {
+
+      self->face_det.nn_input[i].memory = gst_allocator_alloc(
+          self->dmabuf_alloc,
+          self->face_det.stride * self->face_det.height, NULL);
+      if (NULL == self->face_det.nn_input[i].memory) {
+        GST_ERROR_OBJECT(self, "failed to allocate the nn_input dma buffer, %p, %d",
+          self->dmabuf_alloc, self->face_det.stride * self->face_det.height);
+        return FALSE;
+      }
+
+      self->face_det.nn_input[i].fd = gst_dmabuf_memory_get_fd(self->face_det.nn_input[i].memory);
+
+      GST_INFO_OBJECT(self, "[%d]dmabuf_alloc=%p, stride=%d, height=%d, memory=%p", i,
+          self->dmabuf_alloc, self->face_det.stride, self->face_det.height, self->face_det.nn_input[i].memory);
+    }
+  }
+
+  return TRUE;
+}
+
+
+
+static gboolean detection_process(GstAmlNN *self,
+                                  NNResultBuffer *resbuf) {
+  gboolean ret = TRUE;
+
+  GST_INFO_OBJECT(self, "Enter");
+
   struct timeval st;
-  struct timeval mid;
   struct timeval ed;
   double time_total;
   gettimeofday(&st, NULL);
 
-  struct imgproc_buf outbuf;
-
-  GST_INFO_OBJECT(self, "detection_process dmabuf_alloc=%p, stride=%d, height=%d, outmem=%p",
-    self->dmabuf_alloc, self->face_det.stride, self->face_det.height, self->face_det.outmem);
-
-  if (self->face_det.outmem == NULL) {
-    GST_INFO_OBJECT(self, "detection_process gst_allocator_alloc");
-
-    self->face_det.outmem = gst_allocator_alloc(
-        self->dmabuf_alloc,
-        self->face_det.stride * self->face_det.height, NULL);
-    if (self->face_det.outmem == NULL) {
-      GST_ERROR_OBJECT(self, "failed to allocate the output dma buffer, %p, %d",
-        self->dmabuf_alloc, self->face_det.stride * self->face_det.height);
-      return FALSE;
-    }
-  }
-
-  outbuf.fd = gst_dmabuf_memory_get_fd(self->face_det.outmem);
-
-  GST_INFO_OBJECT(self, "detection_process outmem=%p, fd=%d",
-    self->face_det.outmem, outbuf.fd);
-
-
-  GST_INFO_OBJECT(self, "detection_process imgproc =%p, inbuf.fd =%d, outbuf.fd=%d",
-    self->imgproc, inbuf.fd, outbuf.fd);
-  GST_INFO_OBJECT(self, "detection_process prebuf.width =%d, prebuf.height =%d, face_det.width =%d, face_det.height =%d",
-    self->prebuf.width,
-    self->prebuf.height,
-    self->face_det.width,
-    self->face_det.height);
-
-  // Convert source image
-  // Color format -> RGB
-  // width -> 480; height -> 480
-  outbuf.is_ionbuf = TRUE;
-  struct imgproc_pos inpos = {0,
-                              0,
-                              self->prebuf.width,
-                              self->prebuf.height,
-                              self->prebuf.width,
-                              self->prebuf.height};
-  struct imgproc_pos outposition = {0,
-                               0,
-                               self->face_det.width,
-                               self->face_det.height,
-                               self->face_det.width,
-                               self->face_det.height};
-
-  if (!imgproc_crop(self->imgproc, inbuf, inpos,
-                    self->prebuf.format, outbuf, outposition,
-                    GST_VIDEO_FORMAT_RGB)) {
-    GST_ERROR_OBJECT(self, "failed to resize the input buffer");
-    return FALSE;
-  }
-
-  GST_INFO_OBJECT(self, "detection_process befor map, outmem=%p", self->face_det.outmem);
-
-  gettimeofday(&mid, NULL);
-  time_total = (mid.tv_sec - st.tv_sec)*1000000.0 + (mid.tv_usec - st.tv_usec);
-  GST_INFO_OBJECT(self, "imgproc_crop, time=%lf uS", time_total);
+    // get display buffer
+  g_mutex_lock(&self->face_det.buffer_lock);
+  int nn_idx = self->face_det.next_nn_idx;
+  self->face_det.cur_nn_idx = nn_idx;
+  g_mutex_unlock(&self->face_det.buffer_lock);
 
   GstMapInfo minfo;
-  if (!gst_memory_map(self->face_det.outmem, &minfo, GST_MAP_READWRITE)) {
+  if (!gst_memory_map(self->face_det.nn_input[nn_idx].memory, &minfo, GST_MAP_READWRITE)) {
     GST_ERROR_OBJECT(self, "failed to map output detection buffer");
     return FALSE;
   }
 
-  GST_INFO_OBJECT(self, "detection_process rowbytes=%d, stride=%d",
-    self->face_det.rowbytes, self->face_det.stride);
+  GST_INFO_OBJECT(self, "nn_idx=%d, rowbytes=%d, stride=%d",
+    nn_idx, self->face_det.rowbytes, self->face_det.stride);
 
   if (self->face_det.rowbytes != self->face_det.stride) {
     gint rowbytes = self->face_det.rowbytes;
@@ -1009,7 +888,7 @@ static gboolean detection_process(GstAmlNN *self, struct imgproc_buf inbuf,
     }
   }
 
-  GST_INFO_OBJECT(self, "detection_process minfo.data=%p, width=%d, height=%d, channel=%d",
+  GST_INFO_OBJECT(self, "minfo.data=%p, width=%d, height=%d, channel=%d",
     minfo.data, self->face_det.width, self->face_det.height, self->face_det.channel);
 
   input_image_t im;
@@ -1019,7 +898,7 @@ static gboolean detection_process(GstAmlNN *self, struct imgproc_buf inbuf,
   im.height = self->face_det.height;
   im.channel = self->face_det.channel;
   det_status_t rc = det_set_input(im, self->face_det.model);
-  gst_memory_unmap(self->face_det.outmem, &minfo);
+  gst_memory_unmap(self->face_det.nn_input[nn_idx].memory, &minfo);
 
   if (rc != DET_STATUS_OK) {
     GST_ERROR_OBJECT(self, "failed to set input to detection model");
@@ -1036,10 +915,23 @@ static gboolean detection_process(GstAmlNN *self, struct imgproc_buf inbuf,
   det_get_result(&res, self->face_det.model);
   GST_INFO_OBJECT(self, "detection result got, facenum: %d", res.result.det_result.detect_num);
 
+  // NPU use nn_input buffer done, update new buffer index
+  g_mutex_lock(&self->face_det.buffer_lock);
+  if (nn_idx == self->face_det.next_nn_idx) {
+    // new nn buffer not ready, neednot update prepare buffer index
+  } else {
+    self->face_det.prepare_idx ++;
+    if (NN_BUF_CNT == self->face_det.prepare_idx) {
+      self->face_det.prepare_idx = 0;
+    }
+  }
+  self->face_det.cur_nn_idx = -1;
+  g_mutex_unlock(&self->face_det.buffer_lock);
+
   resbuf->amount = res.result.det_result.detect_num;
   resbuf->results = NULL;
   if (res.result.det_result.detect_num > 0) {
-    resbuf->results = g_new(struct nn_result, res.result.det_result.detect_num);
+    resbuf->results = g_new(NNResult, res.result.det_result.detect_num);
     for (gint i = 0; i < res.result.det_result.detect_num; i++) {
       resbuf->results[i].pos.left = res.result.det_result.point[i].point.rectPoint.left/im.width;
       resbuf->results[i].pos.top = res.result.det_result.point[i].point.rectPoint.top/im.height;
@@ -1049,20 +941,21 @@ static gboolean detection_process(GstAmlNN *self, struct imgproc_buf inbuf,
         resbuf->results[i].fpos[j].x = res.result.det_result.point[i].tpts.floatX[j]/im.width;
         resbuf->results[i].fpos[j].y = res.result.det_result.point[i].tpts.floatY[j]/im.height;
       }
-      resbuf->results[i].info[0] = '\0';
+
+      GST_INFO_OBJECT(self, "detect, id=%d, label_name=%s", res.result.det_result.result_name->label_id, res.result.det_result.result_name->label_name);
+      // resbuf->results[i].label_name[0] = '\0';
+      resbuf->results[i].label_id = res.result.det_result.result_name->label_id;
+      snprintf(resbuf->results[i].label_name, MAX_NN_LABEL_LENGTH-1, "%s", res.result.det_result.result_name->label_name);
     }
   }
 
   g_free(res.result.det_result.point);
   g_free(res.result.det_result.result_name);
 
-
-
   gettimeofday(&ed, NULL);
-  time_total = (ed.tv_sec - mid.tv_sec)*1000000.0 + (ed.tv_usec - mid.tv_usec);
+  time_total = (ed.tv_sec - st.tv_sec)*1000000.0 + (ed.tv_usec - st.tv_usec);
 
-  GST_INFO_OBJECT(self, "face detect, time=%lf uS", time_total);
-
+  GST_INFO_OBJECT(self, "detect, time=%lf uS", time_total);
 
 #else
 
@@ -1073,14 +966,14 @@ static gboolean detection_process(GstAmlNN *self, struct imgproc_buf inbuf,
   DetectResult res;
   res.result.det_result.detect_num = 200;
   res.result.det_result.point = g_new(det_position_float_t, self->face_det.param.param.det_param.detect_num);
-  res.result.det_result.result_name = g_new(det_classify_result_t, self->face_det.param.param.det_param.detect_num);
+  res.result.det_result.result_name = g_new(amlnn_processdet_classify_result_t, self->face_det.param.param.det_param.detect_num);
   det_get_result(&res, self->face_det.model);
   GST_INFO_OBJECT(self, "detection result got, facenum: %d, maxfacenum: %d",
     res.result.det_result.detect_num, self->face_det.param.param.det_param.detect_num);
 
   // fleet temp
   resbuf->amount = res.result.det_result.detect_num;
-  resbuf->results = g_new(struct nn_result, resbuf->amount);
+  resbuf->results = g_new(NNResult, resbuf->amount);
 
   static struct timeval timePrev;
   struct timeval timeCurrent;
@@ -1108,281 +1001,89 @@ static gboolean detection_process(GstAmlNN *self, struct imgproc_buf inbuf,
 
 #endif
 
-  GST_INFO_OBJECT(self, "face detection process finished");
+  GST_INFO_OBJECT(self, "Leave");
   return ret;
 }
 
-static gboolean recognition_process(GstAmlNN *self, struct imgproc_buf inbuf,
-                                    struct nn_result_buffer *resbuf) {
-  gboolean ret = TRUE;
 
-  if (self->face_recog.model == DET_BUTT)
-    return ret;
-
-  if (resbuf == NULL || resbuf->amount == 0) {
-    return ret;
-  }
-
-  GST_DEBUG_OBJECT(self, "face recognition process begin");
-
-  if (!self->face_recog.initialized) {
-    open_model(&self->face_recog);
-  }
-
-  if (!self->face_recog.initialized) {
-    GST_ERROR_OBJECT(self, "face recognition model not initialized");
-    return FALSE;
-  }
-
-  if (self->db_param.handle == NULL) {
-    db_set_scale(self->face_recog.param.param.reg_param.scale);
-    open_db(&self->db_param);
-  }
-
-  if (self->db_param.handle == NULL) {
-    GST_DEBUG_OBJECT(self, "database not set");
-    return FALSE;
-  }
-
-  struct imgproc_buf outbuf;
-
-  if (self->face_recog.outmem == NULL) {
-    self->face_recog.outmem = gst_allocator_alloc(
-        self->dmabuf_alloc,
-        self->face_recog.stride * self->face_recog.height, NULL);
-    if (self->face_recog.outmem == NULL) {
-      GST_ERROR_OBJECT(self, "failed to allocate the output dma buffer");
-      return FALSE;
-    }
-  }
-
-  outbuf.fd = gst_dmabuf_memory_get_fd(self->face_recog.outmem);
-  outbuf.is_ionbuf = TRUE;
-
-  GstMapInfo minfo;
-  if (!gst_memory_map(self->face_recog.outmem, &minfo, GST_MAP_READWRITE)) {
-    GST_ERROR_OBJECT(self, "failed to map output recognition buffer");
-    return FALSE;
-  }
-
-  struct imgproc_pos inpos = {0,
-                              0,
-                              self->prebuf.width,
-                              self->prebuf.height,
-                              self->prebuf.width,
-                              self->prebuf.height};
-  struct imgproc_pos outposition = {0,
-                               0,
-                               self->face_recog.width,
-                               self->face_recog.height,
-                               self->face_recog.width,
-                               self->face_recog.height};
-
-  for (gint i = 0; i < resbuf->amount; i++) {
-    struct {
-      gint x0;
-      gint y0;
-      gint x1;
-      gint y1;
-      gint w;
-      gint h;
-    } detect_rect, recog_rect;
-
-    detect_rect.x0 = (int)(resbuf->results[i].pos.left * self->prebuf.width);
-    detect_rect.y0 = (int)(resbuf->results[i].pos.top * self->prebuf.height);
-    detect_rect.x1 = (int)(resbuf->results[i].pos.right * self->prebuf.width);
-    detect_rect.y1 = (int)(resbuf->results[i].pos.bottom * self->prebuf.height);
-    detect_rect.w = detect_rect.x1 - detect_rect.x0;
-    detect_rect.h = detect_rect.y1 - detect_rect.y0;
-
-    float recog_rel_x, recog_rel_y;
-    // adjust the detection rect into to recog square
-    if (detect_rect.w > detect_rect.h) {
-      recog_rect.w = self->face_recog.width;
-      recog_rect.h = (detect_rect.h * self->face_recog.width) / detect_rect.w;
-      recog_rect.x0 = 0;
-      recog_rect.y0 = (self->face_recog.height - recog_rect.h) / 2;
-    } else if(detect_rect.w < detect_rect.h){
-      recog_rect.h = self->face_recog.height;
-      recog_rect.w = (detect_rect.w * self->face_recog.height) / detect_rect.h;
-      recog_rect.x0 = (self->face_recog.width - recog_rect.w) / 2;
-      recog_rect.y0 = 0;
-    } else {
-      recog_rect.h = self->face_recog.height;
-      recog_rect.w = self->face_recog.width;
-      recog_rect.x0 = 0;
-      recog_rect.y0 = 0;
-    }
-
-    recog_rel_x = (float)recog_rect.x0 / (float)self->face_recog.width;
-    recog_rel_y = (float)recog_rect.y0 / (float)self->face_recog.height;
-
-    outposition.x = 0; outposition.y = 0;
-    outposition.w = self->face_recog.width; outposition.h = self->face_recog.height;
-    imgproc_fillrect(self->imgproc, GST_VIDEO_FORMAT_RGB, outbuf, outposition,
-                     0xffffffff);
-
-    inpos.x = detect_rect.x0; inpos.y = detect_rect.y0;
-    inpos.w = detect_rect.w; inpos.h = detect_rect.h;
-    outposition.x = recog_rect.x0; outposition.y = recog_rect.y0;
-    outposition.w = recog_rect.w; outposition.h = recog_rect.h;
-
-    if (!imgproc_crop(self->imgproc, inbuf, inpos,
-                      self->prebuf.format, outbuf, outposition,
-                      GST_VIDEO_FORMAT_RGB)) {
-      GST_ERROR_OBJECT(self, "resize input buffer failed");
-      ret = FALSE;
-      goto recognition_process_exit;
-    }
-
-   if (self->face_recog.rowbytes != self->face_recog.stride) {
-      gint rowbytes = self->face_recog.rowbytes;
-      gint stride = self->face_recog.stride;
-      for (int i=0; i<self->face_recog.height; i++) {
-        memcpy(&minfo.data[rowbytes * i], &minfo.data[stride * i], rowbytes);
-      }
-    }
-
-    // due to the input image would be modified inside nn recoginition module,
-    // original image data should be saved for database recording purpose
-    gint img_length = self->face_recog.rowbytes * self->face_recog.height;
-    gchar *im_data = g_new(gchar, img_length);
-    memcpy (im_data, minfo.data,  img_length);
-
-    input_image_t im;
-    im.data = im_data;
-    im.pixel_format = PIX_FMT_RGB888;
-    im.width = self->face_recog.width;
-    im.height = self->face_recog.height;
-    im.channel = self->face_recog.channel;
-    for (gint fcnt = 0; fcnt < 5; fcnt++) {
-      if (resbuf->results[i].fpos[fcnt].x >= resbuf->results[i].pos.left &&
-          resbuf->results[i].fpos[fcnt].y >= resbuf->results[i].pos.top) {
-        im.inPoint[fcnt].x =
-            (resbuf->results[i].fpos[fcnt].x - resbuf->results[i].pos.left) /
-                (resbuf->results[i].pos.right - resbuf->results[i].pos.left) +
-            recog_rel_x;
-        im.inPoint[fcnt].y =
-            (resbuf->results[i].fpos[fcnt].y - resbuf->results[i].pos.top) /
-                (resbuf->results[i].pos.bottom - resbuf->results[i].pos.top) +
-            recog_rel_y;
-      } else {
-        im.inPoint[fcnt].x = 0.0;
-        im.inPoint[fcnt].y = 0.0;
-      }
-    }
-
-    det_status_t rc = det_set_input(im, self->face_recog.model);
-    g_free(im_data);
-
-    if (rc != DET_STATUS_OK) {
-      GST_ERROR_OBJECT(self, "failed to set input to recognition model");
-      ret = FALSE;
-      goto recognition_process_exit;
-    }
-
-    DetectResult fn_res;
-    GST_DEBUG_OBJECT(self, "waiting for recognition result");
-    rc = det_get_result(&fn_res, self->face_recog.model);
-    GST_DEBUG_OBJECT(self, "recognition result got");
-    if (rc != DET_STATUS_OK) {
-      GST_ERROR_OBJECT(self, "failed to get recognition result");
-      continue;
-    }
-
-    int result_length = self->face_recog.param.param.reg_param.length;
-    GST_DEBUG_OBJECT (self, "recoginition vector number = %d", result_length);
-
-    int uid =
-        db_search_result(self->db_param.handle, fn_res.result.reg_result.uint8,
-                         result_length, self->db_param.bstore_face ? minfo.data : NULL,
-                         self->face_recog.width, self->face_recog.height,
-                         self->db_param.format, resbuf->results[i].info, FACE_INFO_BUFSIZE);
-
-    if (uid < 0) {
-      resbuf->results[i].info[0] = '\0';
-    } else {
-      trigger_recognized(self, uid, resbuf->results[i].info);
-    }
-  }
-
-recognition_process_exit:
-
-  gst_memory_unmap(self->face_recog.outmem, &minfo);
-  self->db_param.bstore_face = FALSE;
-
-  GST_DEBUG_OBJECT(self, "face recognition process finished");
-  return ret;
-}
 
 static gpointer amlnn_process(void *data) {
-  struct nn_result_buffer resbuf;
+  NNResultBuffer resbuf;
   GstAmlNN *self = (GstAmlNN *)data;
   GstMemory *input_memory = NULL;
   gboolean is_normal_process = TRUE;
-  struct imgproc_buf inbuf;
 
-  GST_INFO_OBJECT(self, "amlnn_process begin, _running=%d, _ready=%d", self->_running, self->_ready);
+  GST_INFO_OBJECT(self, "Enter, m_running=%d, m_ready=%d", self->m_running, self->m_ready);
 
-  while (self->_running) {
-    g_mutex_lock(&self->_mutex);
-    while (!self->_ready) {
-      g_cond_wait(&self->_cond, &self->_mutex);
+  while (self->m_running) {
+    g_mutex_lock(&self->m_mutex);
+    while (!self->m_ready) {
+      g_cond_wait(&self->m_cond, &self->m_mutex);
     }
 
-    GST_INFO_OBJECT(self, "amlnn_process wait _cond done, model=%d", self->face_det.model);
+    GST_INFO_OBJECT(self, "wait m_cond done, model=%d", self->face_det.model);
 
-    if (!self->_running) {
+    if (!self->m_running) {
       goto loop_continue;
     }
+
+    self->m_ready = FALSE;
+    g_mutex_unlock(&self->m_mutex);
 
     if (self->face_det.model == DET_BUTT) {
       // face detection not enabled,
       // ignore the request and exit
       GST_DEBUG_OBJECT(self, "face detection model disabled");
       // make sure the input memory would be released
-      input_memory = self->nn_imem;
       goto loop_continue;
     }
-
-    if (self->dmabuf_alloc == NULL) {
-      self->dmabuf_alloc = gst_amlion_allocator_obtain();
-    }
-
-    GST_INFO_OBJECT(self, "amlnn_process loop, custimg=%s", self->custimg);
-    GST_INFO_OBJECT(self, "amlnn_process loop, nn_imem=%p", self->nn_imem);
 
     if (self->custimg) {
-      input_memory = process_custom_image(self);
+      GST_INFO_OBJECT(self, "custimg=%s", self->custimg);
+      process_custom_image(self);
       g_free(self->custimg);
       self->custimg = NULL;
-      if (input_memory == NULL) goto loop_continue;
       self->db_param.bstore_face = TRUE;
       is_normal_process = FALSE;
-    } else if (self->nn_imem) {
-      input_memory = self->nn_imem;
+    } else{
       is_normal_process = TRUE;
+      GST_INFO_OBJECT(self, "is_normal_process=%d", is_normal_process);
     }
 
-    GST_INFO_OBJECT(self, "amlnn_process loop, input_memory=%p", input_memory);
-    GST_INFO_OBJECT(self, "amlnn_process loop, is_normal_process=%d", is_normal_process);
+    detection_process(self, &resbuf);
 
-    if (input_memory == NULL) {
-      GST_ERROR_OBJECT(self, "input buffer not valid");
-      goto loop_continue;
-    }
-
-    inbuf.fd = gst_dmabuf_memory_get_fd(input_memory);
-    inbuf.is_ionbuf = gst_is_amlionbuf_memory(input_memory);
-
-    detection_process(self, inbuf, &resbuf);
-
-    // fleet temp
-    //recognition_process(self, inbuf, &resbuf);
-
-    if (is_normal_process && self->_running) {
+    if (is_normal_process && self->m_running) {
       push_result(&self->element, &resbuf);
     }
+
+#ifdef PRINT_FPS
+    // calculate fps
+    static int64_t frame_count = 0;
+    static int64_t start = 0;
+    int64_t end;
+    int64_t fps = 0;
+    int64_t tmp = 0;
+
+    if (0 == start) {
+      start = get_current_time_msec();
+    }  else{
+      /* print fps info every 100 frames */
+      if ((frame_count % PRINT_FPS_INTERVAL_S == 0)) {
+        end = get_current_time_msec();
+
+        // 0.4 drop, 0.5 add 1.
+        tmp = (PRINT_FPS_INTERVAL_S * 1000 * 10) / (end - start);
+        fps = (PRINT_FPS_INTERVAL_S * 1000) / (end - start);
+        if ((tmp % 10) >= 5) {
+          fps += 1;
+        }
+        GST_INFO_OBJECT(self, "fps: %ld", fps);
+        frame_count = 0;
+        start = end;
+      }
+    }
+    frame_count++;
+#endif
 
   loop_continue:
     if (resbuf.amount > 0) {
@@ -1395,14 +1096,12 @@ static gpointer amlnn_process(void *data) {
       input_memory = NULL;
     }
 
-    self->nn_imem = NULL;
-
     // continue process buffer
-    if (self->_running) {
-      gst_base_transform_set_passthrough(GST_BASE_TRANSFORM(self), FALSE);
-    }
-    self->_ready = FALSE;
-    g_mutex_unlock(&self->_mutex);
+    // if (self->m_running) {
+    //   gst_base_transform_set_passthrough(GST_BASE_TRANSFORM(self), FALSE);
+    // }
+    // self->m_ready = FALSE;
+    // g_mutex_unlock(&self->m_mutex);
   }
 
   // exiting
@@ -1420,7 +1119,7 @@ static GstFlowReturn gst_aml_nn_transform_ip(GstBaseTransform *base,
   GstAmlNN *self = GST_AMLNN(base);
   GstFlowReturn ret = GST_FLOW_ERROR;
 
-  GST_INFO_OBJECT(base, "gst_aml_nn_transform_ip begin");
+  GST_INFO_OBJECT(self, "Enter");
 
   if (GST_CLOCK_TIME_IS_VALID(GST_BUFFER_TIMESTAMP(outbuf)))
     gst_object_sync_values(GST_OBJECT(self), GST_BUFFER_TIMESTAMP(outbuf));
@@ -1430,14 +1129,48 @@ static GstFlowReturn gst_aml_nn_transform_ip(GstBaseTransform *base,
     return GST_FLOW_NOT_NEGOTIATED;
   }
 
+  // init detect, open model, and prepare buffer, only once
+  detection_init(self);
+
   if (self->face_det.model == DET_BUTT) {
     // face detection not enabled
     return GST_FLOW_OK;
   }
 
+  ////////////////////////////////////////////////////////////////////////////////////
+  // Prepare for detect input buffer
+  // swith display buffer index
+  g_mutex_lock(&self->face_det.buffer_lock);
+  // if (-1 == self->face_det.prepare_idx) {
+  //   self->face_det.prepare_idx = 0;
+  // }
+
+  // move prepare to next
+  if (self->face_det.next_nn_idx == self->face_det.prepare_idx) {
+    self->face_det.prepare_idx ++;
+    if (NN_BUF_CNT == self->face_det.prepare_idx) {
+      self->face_det.prepare_idx = 0;
+    }
+  }
+
+  // same index, display not done, ignore this render
+  if (self->face_det.cur_nn_idx == self->face_det.prepare_idx) {
+    GST_INFO_OBJECT(self, "buffer is in NN, ignore this frame, prepare_idx=%d cur_nn_idx=%d",
+        self->face_det.prepare_idx, self->face_det.cur_nn_idx);
+      g_mutex_unlock(&self->face_det.buffer_lock);
+
+      ret = GST_FLOW_OK;
+      return ret;
+  }
+
+  int prepare_idx = self->face_det.prepare_idx;
+  int next_nn_idx = self->face_det.next_nn_idx;
+  g_mutex_unlock(&self->face_det.buffer_lock);
+
+  GST_INFO_OBJECT(self, "start prepare buffer, prepare_idx=%d next_nn_idx=%d", prepare_idx, next_nn_idx);
+
   GstMemory *input_memory = gst_buffer_get_memory(outbuf, 0);
   gboolean is_dmabuf = gst_is_dmabuf_memory(input_memory);
-  struct imgproc_buf inbuf, nn_ibuf;
 
   if (self->dmabuf_alloc == NULL) {
     self->dmabuf_alloc = gst_amlion_allocator_obtain();
@@ -1453,7 +1186,7 @@ static GstFlowReturn gst_aml_nn_transform_ip(GstBaseTransform *base,
 
     gst_memory_unref(input_memory);
 
-    GST_INFO_OBJECT(base, "allocate memory, info.size %ld", self->info.size);
+    GST_INFO_OBJECT(self, "allocate memory, info.size %ld", self->info.size);
 
     input_memory = gst_allocator_alloc(self->dmabuf_alloc, self->info.size, NULL);
     if (input_memory == NULL) {
@@ -1479,67 +1212,91 @@ static GstFlowReturn gst_aml_nn_transform_ip(GstBaseTransform *base,
     goto transform_end;
   }
 
-  inbuf.fd = gst_dmabuf_memory_get_fd(input_memory);
-  inbuf.is_ionbuf = gst_is_amlionbuf_memory(input_memory);
+  GFX_Buf inBuf;
+  inBuf.fd = gst_dmabuf_memory_get_fd(input_memory);
+  inBuf.format = gfx_convert_video_format(GST_VIDEO_INFO_FORMAT(&self->info));
+  inBuf.is_ionbuf = gst_is_amlionbuf_memory(input_memory);
+  inBuf.size.w = self->info.width;
+  inBuf.size.h = self->info.height;
 
-  GST_INFO_OBJECT(base, "allocate memory, prebuf.size %d", self->prebuf.size);
+  GstMemory *nn_memory = self->face_det.nn_input[prepare_idx].memory;
 
-  GstMemory *nn_imem = gst_allocator_alloc(self->dmabuf_alloc, self->prebuf.size, NULL);
-  if (nn_imem == NULL) {
-    GST_ERROR_OBJECT(self, "failed to allocate new dma buffer");
-    goto transform_end;
-  }
+  GFX_Buf outBuf;
+  outBuf.fd = self->face_det.nn_input[prepare_idx].fd;
+  outBuf.format = gfx_convert_video_format(NN_INPUT_BUF_FORMAT);
+  outBuf.is_ionbuf = gst_is_amlionbuf_memory(nn_memory);
+  outBuf.size.w = self->face_det.width;
+  outBuf.size.h = self->face_det.height;
 
-  GST_INFO_OBJECT(base, "gst_aml_nn_transform_ip gst_allocator_alloc nn_imem done");
-  nn_ibuf.fd = gst_dmabuf_memory_get_fd(nn_imem);
-  GST_INFO_OBJECT(base, "gst_aml_nn_transform_ip gst_dmabuf_memory_get_fd nn_imem done");
-  nn_ibuf.is_ionbuf = gst_is_amlionbuf_memory(nn_imem);
+  GST_INFO_OBJECT(self, "prepare detect memory=%p, fd=%d", nn_memory, outBuf.fd);
 
-  GST_INFO_OBJECT(base, "gst_aml_nn_transform_ip gst_is_amlionbuf_memory nn_imem done");
+  GFX_Rect inRect = {0, 0, self->info.width, self->info.height};
+  GFX_Rect outRect = {0, 0, self->face_det.width, self->face_det.height};
 
-  struct imgproc_pos inpos = {0,
-                              0,
-                              self->info.width,
-                              self->info.height,
-                              self->info.width,
-                              self->info.height};
-  struct imgproc_pos outposition = {0,
-                               0,
-                               self->prebuf.width,
-                               self->prebuf.height,
-                               self->prebuf.width,
-                               self->prebuf.height};
+  // Convert source buffer to detect buffer
+  gfx_stretchblit(self->handle,
+                &inBuf, &inRect,
+                &outBuf, &outRect,
+                GFX_AML_ROTATION_0,
+                1);
 
-  if (!imgproc_crop(self->imgproc, inbuf, inpos,
-                    GST_VIDEO_INFO_FORMAT(&self->info), nn_ibuf, outposition,
-                    self->prebuf.format)) {
-    gst_memory_unref(nn_imem);
-    GST_ERROR_OBJECT(self, "failed to process buffer");
-    goto transform_end;
-  }
+  // update new render buffer
+  g_mutex_lock(&self->face_det.buffer_lock);
+  self->face_det.next_nn_idx = self->face_det.prepare_idx;
+  g_mutex_unlock(&self->face_det.buffer_lock);
 
   gettimeofday(&ed, NULL);
   time_total = (ed.tv_sec - st.tv_sec)*1000000.0 + (ed.tv_usec - st.tv_usec);
-  GST_INFO_OBJECT(base, "gst_aml_nn_transform_ip imgproc_crop done, time=%lf uS", time_total);
+  GST_INFO_OBJECT(self, "gfx_stretchblit done, time=%lf uS", time_total);
 
-  if (g_mutex_trylock(&self->_mutex)) {
+  if (g_mutex_trylock(&self->m_mutex)) {
     // skip the following transform
-    gst_base_transform_set_passthrough(base, TRUE);
+    // gst_base_transform_set_passthrough(base, TRUE);
 
-    self->nn_imem = nn_imem;
-    self->_ready = TRUE;
-    g_cond_signal(&self->_cond);
-    g_mutex_unlock(&self->_mutex);
+    self->m_ready = TRUE;
+    g_cond_signal(&self->m_cond);
+    g_mutex_unlock(&self->m_mutex);
   }
-
-  GST_INFO_OBJECT(base, "gst_aml_nn_transform_ip end");
 
   ret = GST_FLOW_OK;
 
+#ifdef PRINT_FPS
+    // calculate fps
+    static int64_t frame_count = 0;
+    static int64_t start = 0;
+    int64_t end;
+    int64_t fps = 0;
+    int64_t tmp = 0;
+
+    if (0 == start) {
+      start = get_current_time_msec();
+    }  else{
+      /* print fps info every 100 frames */
+      if ((frame_count % PRINT_FPS_INTERVAL_S == 0)) {
+        end = get_current_time_msec();
+
+        // 0.4 drop, 0.5 add 1.
+        tmp = (PRINT_FPS_INTERVAL_S * 1000 * 10) / (end - start);
+        fps = (PRINT_FPS_INTERVAL_S * 1000) / (end - start);
+        if ((tmp % 10) >= 5) {
+          fps += 1;
+        }
+        GST_INFO_OBJECT(self, "fps: %ld", fps);
+        frame_count = 0;
+        start = end;
+      }
+    }
+    frame_count++;
+#endif
+
 transform_end:
+
   if (input_memory != NULL) {
     gst_memory_unref(input_memory);
   }
+
+  GST_INFO_OBJECT(self, "Leave, signal done");
+
   return ret;
 }
 

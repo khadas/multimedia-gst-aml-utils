@@ -30,16 +30,6 @@ typedef enum {
   PIX_FMT_RGB888
 } det_pixel_format;
 
-// typedef struct{
-//     int index;
-//     int classId;
-//     float **probs;
-// } sortable_bbox;
-
-// typedef struct{
-//     float x, y, w, h, prob_obj;
-// } box;
-
 typedef struct rect_point_t{
 	float left;   ///< The value of left direction of the rectangle
 	float top;    ///< The value of top direction of the rectangle
@@ -121,8 +111,6 @@ typedef struct det_position_t {
   char reserved[4];
 } det_position_float_t;
 
-
-
 ///integer type point definition
 typedef struct pointi_t {
   int x;                   ///< The integer value of the horizontal direction of the point
@@ -176,15 +164,6 @@ typedef enum{
 	DET_DEBUG_LEVEL_PROCESS,	    ///< default,some process print
 	DET_DEBUG_LEVEL_DEBUG		    ///< debug level,just for debug
 }det_debug_level_t;
-
-#if 0
-typedef struct _DetectResult {
-	int  detect_num;
-	float facenet_result[512];
-	det_classify_result_t result_name[MAX_DETECT_NUM];
-	det_position_float_t point[MAX_DETECT_NUM];
-}DetectResult,*pDetResult;
-#endif
 
 typedef struct {
    int  detect_num;

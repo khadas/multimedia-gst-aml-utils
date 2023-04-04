@@ -2,15 +2,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <dlfcn.h>
-
-#define USE_DMA_BUFFER
-
 #include <math.h>
 #include <float.h>
 #include <unistd.h>
 using namespace std;
 
-static unsigned char temp[112*112*3];
 static unsigned char *inbuf_det = NULL;
 static unsigned char *inbuf_reg = NULL;
 static unsigned char *outbuf = NULL;
@@ -20,6 +16,16 @@ static unsigned char *outbuf = NULL;
 #include "nn_detect.h"
 #include "nn_detect_utils.h"
 #include "detect_log.h"
+
+
+// for test performance time
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/time.h>
+
+
+static struct timeval g_start = {0};
+
 extern "C"
 
 typedef unsigned char   uint8_t;
@@ -75,8 +81,6 @@ typedef struct function_process {
 
 typedef struct detect_network {
     det_model_type      mtype;
-    // int                 input_size;
-    // uint8_t             *input_ptr;
     aml_memory_config_t mem_config;
     aml_memory_data_t memory_data;
     network_status      status;
@@ -96,19 +100,7 @@ const char * file_name[DET_BUTT]= {
 };
 
 // change to 128 avoid buffer overflow
-char model_path[128];
-
-static const char *coco_names[] = {"person","bicycle","car","motorbike","airplane","bus","train",
-                "truck","boat","traffic light","fire hydrant","stop sign","parking meter",
-                "bench","bird","cat","dog","horse","sheep","cow","elephant","bear","zebra",
-                "giraffe","backpack","umbrella","handbag","tie","suitcase","frisbee","skis",
-                "snowboard","sports ball","kite","baseball bat","baseball glove","skateboard",
-                "surfboard","tennis racket","bottle","wine glass","cup","fork","knife","spoon",
-                "bowl","banana","apple","sandwich","orange","broccoli","carrot","hot dog","pizza",
-                "donut","cake","chair","sofa","pottedplant","bed","diningtable","toilet","tvmonitor",
-                "laptop","mouse","remote","keyboard","cell phone","microwave","oven","toaster","sink",
-                "refrigerator","book","clock","vase","scissors","teddy bear","hair drier","toothbrush"};
-
+static char model_path[128];
 int get_input_size(det_model_type mtype);
 
 static det_status_t check_input_param(input_image_t imageData, det_model_type modelType)
@@ -196,12 +188,6 @@ det_status_t check_and_set_function(det_model_type modelType)
         _SET_STATUS_(ret, DET_STATUS_ERROR, exit);
     }
 
-    // net->handle_id_demo =  dlopen("libnndemo.so", RTLD_NOW);
-    // if (NULL == net->handle_id_demo) {
-    //     LOGE("dlopen libnndemo.so failed!,%s",dlerror());
-    //     _SET_STATUS_(ret, DET_STATUS_ERROR, exit);
-    // }
-
     net->process.module_create = (_aml_module_create)dlsym(net->handle_id_user, "aml_module_create");
     _CHECK_STATUS_(net->process.module_create, exit);
 
@@ -226,20 +212,6 @@ det_status_t check_and_set_function(det_model_type modelType)
     net->process.freeBuffer = (_aml_util_freeBuffer)dlsym(net->handle_id_user, "aml_util_freeBuffer");
     _CHECK_STATUS_(net->process.freeBuffer, exit);
 
-    // net->process.post_process = (_post_process_all_module)dlsym(net->handle_id_demo, "post_process_all_module");
-    // _CHECK_STATUS_(net->process.post_process, exit);
-
-
-
-
-    // net->process.module_create = aml_module_create;
-    // net->process.module_input_set = (_aml_module_input_set)aml_module_input_set;
-    // net->process.module_output_get = (_aml_module_output_get)aml_module_output_get;
-    // net->process.module_destroy = (_aml_module_destroy)aml_module_destroy;
-    // net->process.getHardwareStatus = (_aml_util_getHardwareStatus)aml_util_getHardwareStatus;
-    // net->process.read_chip_info = (_aml_read_chip_info)aml_read_chip_info;
-    // net->process.mallocBuffer = (_aml_util_mallocBuffer)aml_util_mallocBuffer;
-    // net->process.freeBuffer = (_aml_util_freeBuffer)aml_util_freeBuffer;
     net->process.post_process = (_post_process_all_module)post_process_all_module;
 
     ret = DET_STATUS_OK;
@@ -282,17 +254,17 @@ det_status_t det_get_model_name(const char * data_file_path, dev_type type,det_m
     }
 
     switch (type) {
-    case DEV_C308:
-        sprintf(model_path, "%s/%s/%s_A0001.adla", data_file_path,file_name[index],file_name[index]);
-        break;
-    case DEV_AX201:
-        sprintf(model_path, "%s/%s/%s_A0002.adla", data_file_path,file_name[index],file_name[index]);
-        break;
-    case DEV_A311D2:
-        sprintf(model_path, "%s/%s/%s_A0003.adla", data_file_path, file_name[index],file_name[index]);
-        break;
-    default:
-        break;
+        case DEV_C308:
+            sprintf(model_path, "%s/%s/%s_A0001.adla", data_file_path,file_name[index],file_name[index]);
+            break;
+        case DEV_AX201:
+            sprintf(model_path, "%s/%s/%s_A0002.adla", data_file_path,file_name[index],file_name[index]);
+            break;
+        case DEV_A311D2:
+            sprintf(model_path, "%s/%s/%s_A0003.adla", data_file_path, file_name[index],file_name[index]);
+            break;
+        default:
+            break;
     }
     return ret;
 }
@@ -347,7 +319,7 @@ det_status_t det_set_model(det_model_type modelType)
     net->mem_config.direction = AML_MEM_DIRECTION_READ_WRITE;
     net->mem_config.index = 0;
     net->mem_config.mem_size = size;
-    net->process.mallocBuffer(net->context, &net->mem_config, &net->memory_data); // neek check malloc interface
+    net->process.mallocBuffer(net->context, &net->mem_config, &net->memory_data);
 
     net->mtype = modelType;
     LOGI("input_ptr size=%d, addr=%x", size, net->memory_data.memory);
@@ -400,6 +372,8 @@ det_status_t det_set_input(input_image_t imageData, det_model_type modelType)
         LOGE("Model has not created! modeltype:%d", modelType);
         _SET_STATUS_(ret, DET_STATUS_ERROR, exit);
     }
+
+    gettimeofday(&g_start, NULL);
 
     ret = check_input_param(imageData, modelType);
     if (ret) {
@@ -554,12 +528,12 @@ void post_process(det_model_type modelType,void* out,pDetResult resultData)
             resultData->result.det_result.point[i].point.rectPoint.top = top;
             resultData->result.det_result.point[i].point.rectPoint.bottom = bot;
             resultData->result.det_result.point[i].point.rectPoint.score = prob;
-            printf("num:%d, left:%f, right:%f, top:%f, bot:%f, score:%f\n", i+1,
-                                                                            resultData->result.det_result.point[i].point.rectPoint.left,
-                                                                            resultData->result.det_result.point[i].point.rectPoint.right,
-                                                                            resultData->result.det_result.point[i].point.rectPoint.top,
-                                                                            resultData->result.det_result.point[i].point.rectPoint.bottom,
-                                                                            resultData->result.det_result.point[i].point.rectPoint.score);
+            // printf("num:%d, left:%f, right:%f, top:%f, bot:%f, score:%f\n", i+1,
+                                                                            // resultData->result.det_result.point[i].point.rectPoint.left,
+                                                                            // resultData->result.det_result.point[i].point.rectPoint.right,
+                                                                            // resultData->result.det_result.point[i].point.rectPoint.top,
+                                                                            // resultData->result.det_result.point[i].point.rectPoint.bottom,
+                                                                            // resultData->result.det_result.point[i].point.rectPoint.score);
         }
         break;
     case DET_AML_FACE_DETECTION:
@@ -603,23 +577,30 @@ void post_process(det_model_type modelType,void* out,pDetResult resultData)
             resultData->result.det_result.point[i].tpts.floatX[4] = face_detect_out->pos[i][4].x*input_width;
             resultData->result.det_result.point[i].tpts.floatY[4] = face_detect_out->pos[i][4].y*input_high;
 
-            printf("face_number:%d, left=%f, right=%f, top=%f, bot=%f, score:%f\n", i+1,
-                                                                                    resultData->result.det_result.point[i].point.rectPoint.left,
-                                                                                    resultData->result.det_result.point[i].point.rectPoint.right,
-                                                                                    resultData->result.det_result.point[i].point.rectPoint.top,
-                                                                                    resultData->result.det_result.point[i].point.rectPoint.bottom,
-                                                                                    resultData->result.det_result.point[i].point.rectPoint.score);
-            printf("left_eye.x = %f ,   left_eye.y = %f \n",                        resultData->result.det_result.point[i].tpts.floatX[0], resultData->result.det_result.point[i].tpts.floatY[0]);
-            printf("right_eye.x = %f,   right_eye.y = %f \n",                       resultData->result.det_result.point[i].tpts.floatX[1], resultData->result.det_result.point[i].tpts.floatY[1]);
-            printf("nose.x = %f,        nose.y = %f \n",                            resultData->result.det_result.point[i].tpts.floatX[2], resultData->result.det_result.point[i].tpts.floatY[2]);
-            printf("left_mouth.x = %f,  left_mouth.y = %f \n",                      resultData->result.det_result.point[i].tpts.floatX[3], resultData->result.det_result.point[i].tpts.floatY[3]);
-            printf("right_mouth.x = %f, right_mouth.y = %f\n\n",                    resultData->result.det_result.point[i].tpts.floatX[4], resultData->result.det_result.point[i].tpts.floatY[4]);
+            // printf("face_number:%d, left=%f, right=%f, top=%f, bot=%f, score:%f\n", i+1,
+            //                                                                         resultData->result.det_result.point[i].point.rectPoint.left,
+            //                                                                         resultData->result.det_result.point[i].point.rectPoint.right,
+            //                                                                         resultData->result.det_result.point[i].point.rectPoint.top,
+            //                                                                         resultData->result.det_result.point[i].point.rectPoint.bottom,
+            //                                                                         resultData->result.det_result.point[i].point.rectPoint.score);
+            // printf("left_eye.x = %f ,   left_eye.y = %f \n",                        resultData->result.det_result.point[i].tpts.floatX[0], resultData->result.det_result.point[i].tpts.floatY[0]);
+            // printf("right_eye.x = %f,   right_eye.y = %f \n",                       resultData->result.det_result.point[i].tpts.floatX[1], resultData->result.det_result.point[i].tpts.floatY[1]);
+            // printf("nose.x = %f,        nose.y = %f \n",                            resultData->result.det_result.point[i].tpts.floatX[2], resultData->result.det_result.point[i].tpts.floatY[2]);
+            // printf("left_mouth.x = %f,  left_mouth.y = %f \n",                      resultData->result.det_result.point[i].tpts.floatX[3], resultData->result.det_result.point[i].tpts.floatY[3]);
+            // printf("right_mouth.x = %f, right_mouth.y = %f\n\n",                    resultData->result.det_result.point[i].tpts.floatX[4], resultData->result.det_result.point[i].tpts.floatY[4]);
         }
         break;
     default:
         break;
     }
-    LOGP("Leave, post_process modelType:%d", modelType);
+
+    struct timeval end;
+    double time_total;
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
+    g_start = end;
+
+    // printf("Leave, post_process modelType:%d, time=%lf uS \n", modelType, time_total);
     return;
 }
 
@@ -658,7 +639,7 @@ det_status_t det_get_result(pDetResult resultData, det_model_type modelType)
     switch (modelType)
     {
     case DET_YOLO_V3:
-        outconfig.format = AML_OUTDATA_FLOAT32; //need check postprocess
+        outconfig.format = AML_OUTDATA_FLOAT32;
         outconfig.order = AML_OUTPUT_ORDER_NCHW;
         break;
     case DET_AML_FACE_DETECTION:
@@ -676,6 +657,14 @@ det_status_t det_get_result(pDetResult resultData, det_model_type modelType)
         LOGE("Process Net work fail");
         _SET_STATUS_(ret, DET_STATUS_PROCESS_NETWORK_FAIL, exit);
     }
+
+    struct timeval end;
+    double time_total;
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
+    g_start = end;
+
+    // printf("module_output_get modelType:%d, time=%lf uS \n", modelType, time_total);
 
     post_process(modelType,out,resultData);
     net->status = NETWORK_PROCESSING;
@@ -698,7 +687,7 @@ det_status_t det_release_model(det_model_type modelType)
     }
 
     if (net->memory_data.viraddr)
-        net->process.freeBuffer(net->context, &net->mem_config, &net->memory_data);  // neek check free interface
+        net->process.freeBuffer(net->context, &net->mem_config, &net->memory_data);
 
     if (net->context != NULL) {
         net->process.module_destroy(net->context);

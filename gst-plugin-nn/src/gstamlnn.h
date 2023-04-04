@@ -48,6 +48,9 @@ G_BEGIN_DECLS
 typedef struct _GstAmlNN      GstAmlNN;
 typedef struct _GstAmlNNClass GstAmlNNClass;
 
+
+#define NN_BUF_CNT 2
+
 typedef struct _model_info {
   det_model_type model;
   det_param_t param;
@@ -57,7 +60,20 @@ typedef struct _model_info {
   gint channel;
   gint rowbytes;
   gint stride;
-  GstMemory *outmem;
+
+  struct {
+    GstMemory *memory;
+    gint fd;
+  } nn_input[NN_BUF_CNT];
+  // GstMemory *outmem;
+
+  // for nn_inout buffer
+  GMutex buffer_lock;
+
+  // current render buffer index
+  int next_nn_idx;
+  int cur_nn_idx;
+  int prepare_idx;
 } ModelInfo;
 
 typedef struct _recog_db_param {
@@ -78,24 +94,17 @@ struct _GstAmlNN {
 
   gint max_detect_num;
 
-  GstMemory *nn_imem;
-
   GstAllocator *dmabuf_alloc;
 
-  struct {
-    gint width;
-    gint height;
-    gint size;
-    GstVideoFormat format;
-  } prebuf;
+  // gfx2d handle
+  void *handle;
 
-  void *imgproc;
-
-  GThread *_thread;
-  GMutex _mutex;
-  GCond _cond;
-  gboolean _ready;
-  gboolean _running;
+  GThread *m_thread;
+  // mutex for condtition
+  GMutex m_mutex;
+  GCond m_cond;
+  gboolean m_ready;
+  gboolean m_running;
 
   GstVideoInfo info;
   gboolean is_info_set;

@@ -6,17 +6,6 @@ all: $(TARGET)
 
 CXXFLAGS+=-std=c++14
 CFLAGS = -Wall -Wextra -fPIC -Os
-# CFLAGS += -I./include \
-# 	   -I$(SDK_LIB)/nnsdk/include \
-# 	   -I$(OPENCV_LIB)/modules/video/include \
-# 	   -I$(OPENCV_LIB)/include  \
-# 	   -I$(OPENCV_LIB)/modules/imgproc/include \
-# 	   -I$(OPENCV_LIB)/modules/core/include  \
-# 	   -I$(OPENCV_LIB)/modules/core/include  \
-# 	   -I$(OPENCV_LIB)/modules/highgui/include \
-# 	   -I$(OPENCV_LIB)/modules/imgcodecs/include \
-# 	   -I$(OPENCV_LIB)/modules/videoio/include
-
 LDFLAGS +=  -L$(STAGING_DIR)/usr/lib/ -lstdc++ -lm -lpthread -ljpeg -lnnsdk
 
 LDFLAGS +=  -L/lib/lib64

@@ -80,7 +80,7 @@ void gfx_fill_params(GFX_Buf *pBuf,
 }
 
 
-void gfx_clear_ge2d_info(aml_ge2d_info_t *pge2dinfo){
+void gfx_clear_ge2d_info(aml_ge2d_info_t *pge2dinfo) {
     if (NULL == pge2dinfo) {
       return;
     }
@@ -187,7 +187,7 @@ void gfx_print_params(aml_ge2d_info_t *pge2dinfo) {
 
 
 
-GFX_Return gfx_do_ge2d_cmd(aml_ge2d_info_t *pge2dinfo, int sync){
+GFX_Return gfx_do_ge2d_cmd(aml_ge2d_info_t *pge2dinfo, int sync) {
   if (NULL == pge2dinfo) return GFX_Ret_Error;
 
 # if !GFX_SUPPORT_CMD_Q

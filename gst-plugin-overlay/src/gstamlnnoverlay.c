@@ -52,7 +52,21 @@
 #include "gstamlnnoverlay.h"
 
 
-#include "imgproc.h"
+
+#define PRINT_FPS
+
+#ifdef PRINT_FPS
+#define PRINT_FPS_INTERVAL_S 120
+
+static int64_t get_current_time_msec(void) {
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+  return tv.tv_sec * 1000 + tv.tv_usec / 1000;
+}
+
+#endif
+
+
 
 GST_DEBUG_CATEGORY_STATIC(gst_aml_nn_overlay_debug);
 #define GST_CAT_DEFAULT gst_aml_nn_overlay_debug
@@ -65,11 +79,11 @@ GST_DEBUG_CATEGORY_STATIC(gst_aml_nn_overlay_debug);
 
 
 #define DEFAULT_PROP_FONTCOLOR 0x00ffffff
-#define DEFAULT_PROP_RECTCOLOR 0xff0000ff
-#define TEMP_SURFACE_COLOR_FORMAT GST_VIDEO_FORMAT_BGRA
 
-// #define DEFAULT_PROP_RECTCOLOR 0xffff0000
-// #define TEMP_SURFACE_COLOR_FORMAT GST_VIDEO_FORMAT_ARGB
+#define DEFAULT_PROP_RECTCOLOR 0xff0000ff
+#define TEMP_SURFACE_COLOR_FORMAT GST_VIDEO_FORMAT_RGBA
+
+#define DEFAULT_PROP_RECT_THICKNESS 6
 
 
 
@@ -102,7 +116,7 @@ static GstFlowReturn gst_aml_nn_overlay_transform_ip(GstBaseTransform *trans,
 
 static gboolean gst_aml_nn_overlay_event(GstBaseTransform *trans,
                                          GstEvent *event);
-static void nn_release_result(struct nn_result_buffer *resbuf);
+static void nn_release_result(NNResultBuffer *resbuf);
 
 static gpointer overlay_process(void *data);
 
@@ -184,15 +198,19 @@ static void gst_aml_nn_overlay_init(GstAmlNNOverlay *self) {
   self->nn.font.fgcolor = DEFAULT_PROP_FONTCOLOR;
   self->nn.font.size = DEFAULT_PROP_FONTSIZE;
 
-  gst_aml_overlay_init_surface_struct(&self->nn.hfont, &base->surface_lock);
+  gst_aml_overlay_init_surface_struct(&self->nn.hfont, &base->graphic.surface_lock);
 
   self->nn.result.srcid = 0;
   g_mutex_init(&self->nn.result.lock);
 
-  g_cond_init(&base->_cond);
-  base->_running = FALSE;
-  base->graphic.render_idx = 0;
-  base->graphic.display_idx = 0;
+  g_cond_init(&self->m_cond);
+  g_mutex_init(&self->m_mutex);
+  self->m_ready = FALSE;
+  self->m_running = TRUE;
+
+  base->graphic.render_idx = -1;
+  base->graphic.cur_display_idx = -1;
+  base->graphic.next_display_idx = -1;
   base->process = overlay_process;
 }
 
@@ -200,29 +218,30 @@ static void gst_aml_nn_overlay_finalize(GObject *object) {
   GstAmlNNOverlay *self = GST_AMLNNOVERLAY(object);
   GstAmlOverlay *base = GST_AMLOVERLAY_CAST(self);
 
-  base->_running = FALSE;
+  self->m_running = FALSE;
 
-  g_mutex_lock(&base->_mutex);
-  g_cond_signal(&base->_cond);
-  g_mutex_unlock(&base->_mutex);
+  g_mutex_lock(&self->m_mutex);
+  self->m_ready = TRUE;
+  g_cond_signal(&self->m_cond);
+  g_mutex_unlock(&self->m_mutex);
 
-  if (NULL != base->_thread) {
-    g_thread_join(base->_thread);
-    base->_thread = NULL;
+  if (NULL != base->m_thread) {
+    g_thread_join(base->m_thread);
+    base->m_thread = NULL;
   }
 
   G_OBJECT_CLASS(parent_class)->finalize(object);
 }
 
 static gboolean gst_aml_nn_overlay_start(GstBaseTransform *trans) {
-  GST_INFO_OBJECT(trans, "gst_aml_nn_overlay_start begin");
+  GstAmlNNOverlay *self = GST_AMLNNOVERLAY(trans);
+  GST_INFO_OBJECT(self, "Enter");
   return GST_BASE_TRANSFORM_CLASS(parent_class)->start(trans);
 }
 
 static gboolean gst_aml_nn_overlay_stop(GstBaseTransform *trans) {
   GstAmlNNOverlay *self = GST_AMLNNOVERLAY(trans);
-
-  GST_INFO_OBJECT(trans, "gst_aml_nn_overlay_stop begin");
+  GST_INFO_OBJECT(self, "Enter");
 
   gst_aml_overlay_deinit_surface_struct(&self->nn.hfont);
 
@@ -310,7 +329,7 @@ static void gst_aml_nn_overlay_get_property(GObject *object, guint prop_id,
   }
 }
 
-static void nn_release_result(struct nn_result_buffer *resbuf) {
+static void nn_release_result(NNResultBuffer *resbuf) {
   if (resbuf) {
     if (resbuf->amount > 0) {
       g_free(resbuf->results);
@@ -335,46 +354,38 @@ static gboolean timeout_nn_release_result(GstAmlNNOverlay *overlay) {
 static gboolean gst_aml_nn_overlay_event(GstBaseTransform *trans,
                                          GstEvent *event) {
   GstAmlNNOverlay *self = GST_AMLNNOVERLAY(trans);
-  GstAmlOverlay *base = GST_AMLOVERLAY_CAST(self);
 
-  //GST_INFO_OBJECT(trans, "gst_aml_nn_overlay_event begin");
+  // GST_INFO_OBJECT(self, "Enter");
 
   switch (GST_EVENT_TYPE(event)) {
   case GST_EVENT_CUSTOM_DOWNSTREAM_OOB: {
-
-    // GST_INFO_OBJECT(trans, "gst_aml_nn_overlay_event GST_EVENT_CUSTOM_DOWNSTREAM_OOB");
-
     const GstStructure *st = gst_event_get_structure(event);
     if (gst_structure_has_name(st, "nn-result")) {
 
-      // GST_INFO_OBJECT(trans, "gst_aml_nn_overlay_event nn-result");
+      GST_INFO_OBJECT(self, "nn-result");
 
       GstMapInfo info;
       const GValue *val = gst_structure_get_value(st, "result-buffer");
       GstBuffer *buf = gst_value_get_buffer(val);
 
-      // GST_INFO_OBJECT(trans, "gst_aml_nn_overlay_event buf=%p", buf);
-
-      struct nn_result_buffer *resbuf = g_new(struct nn_result_buffer, 1);
+      NNResultBuffer *resbuf = g_new(NNResultBuffer, 1);
       if (gst_buffer_map(buf, &info, GST_MAP_READ)) {
 
-        memcpy(resbuf, info.data, sizeof(struct nn_result_buffer));
+        memcpy(resbuf, info.data, sizeof(NNResultBuffer));
 
-        gint st_size = sizeof(struct nn_result_buffer);
-        gint res_size = resbuf->amount * sizeof(struct nn_result);
+        gint st_size = sizeof(NNResultBuffer);
+        gint res_size = resbuf->amount * sizeof(NNResult);
 
-        resbuf->results = g_new(struct nn_result, resbuf->amount);
+        resbuf->results = g_new(NNResult, resbuf->amount);
         memcpy(resbuf->results, info.data + st_size, res_size);
 
-        GST_INFO_OBJECT(trans, "gst_aml_nn_overlay_event memcpy done, amount=%d", resbuf->amount);
+        GST_INFO_OBJECT(self, "memcpy done, amount=%d", resbuf->amount);
 
         gst_buffer_unmap(buf, &info);
       } else {
         g_free(resbuf);
         resbuf = NULL;
       }
-
-      // GST_INFO_OBJECT(trans, "gst_aml_nn_overlay_event receive done");
 
       if (resbuf) {
         if (self->nn.result.srcid) {
@@ -385,22 +396,26 @@ static gboolean gst_aml_nn_overlay_event(GstBaseTransform *trans,
           nn_release_result(self->nn.result.buf);
         }
         self->nn.result.buf = resbuf;
-
-        // signal overlay_progress to work
-        g_cond_signal(&base->_cond);
-        g_mutex_unlock(&self->nn.result.lock);
         self->nn.result.srcid = g_timeout_add(
             DETECT_RESULT_KEEP_MS, (GSourceFunc)timeout_nn_release_result,
             (gpointer)self);
 
-        GST_INFO_OBJECT(trans, "gst_aml_nn_overlay_event memcpy done, srcid=%d", self->nn.result.srcid);
+        g_mutex_unlock(&self->nn.result.lock);
+
+        // signal overlay_progress to work
+        g_mutex_lock(&self->m_mutex);
+        self->m_ready = TRUE;
+        g_cond_signal(&self->m_cond);
+        g_mutex_unlock(&self->m_mutex);
+
+        GST_INFO_OBJECT(self, "signal done, srcid=%d", self->nn.result.srcid);
       }
 
       gst_event_unref(event);
       return FALSE;
     } else if (gst_structure_has_name(st, "nn-result-clear")) {
 
-      GST_INFO_OBJECT(trans, "gst_aml_nn_overlay_event nn-result-clear");
+      GST_INFO_OBJECT(self, "nn-result-clear");
       g_mutex_lock(&self->nn.result.lock);
       if (self->nn.result.buf) {
         nn_release_result(self->nn.result.buf);
@@ -413,7 +428,7 @@ static gboolean gst_aml_nn_overlay_event(GstBaseTransform *trans,
     break;
   }
 
-  //GST_INFO_OBJECT(trans, "gst_aml_nn_overlay_event end");
+  //GST_INFO_OBJECT(self, "Leave");
 
   return GST_BASE_TRANSFORM_CLASS(parent_class)->sink_event(trans, event);
 }
@@ -432,7 +447,7 @@ static GstFlowReturn gst_aml_nn_overlay_transform_ip(GstBaseTransform *trans,
     gst_object_sync_values(GST_OBJECT(self), GST_BUFFER_TIMESTAMP(outbuf));
 
   if (!base->is_info_set) {
-    GST_ELEMENT_ERROR(trans, CORE, NEGOTIATION, (NULL), ("unknown format"));
+    GST_ELEMENT_ERROR(self, CORE, NEGOTIATION, (NULL), ("unknown format"));
     return GST_FLOW_NOT_NEGOTIATED;
   }
 
@@ -448,24 +463,6 @@ static GstFlowReturn gst_aml_nn_overlay_transform_ip(GstBaseTransform *trans,
   double time_total;
   gettimeofday(&st, NULL);
 
-  g_mutex_lock(&base->surface_lock);
-
-  GST_INFO_OBJECT(trans, "gst_aml_nn_overlay_transform_ip begin display_idx=%d", base->graphic.display_idx);
-
-  GFX_Buf topBuf;
-  topBuf.fd = base->graphic.render[base->graphic.display_idx].fd;
-  topBuf.format = gfx_convert_video_format(TEMP_SURFACE_COLOR_FORMAT);
-  topBuf.is_ionbuf = gst_is_amlionbuf_memory(base->graphic.render[base->graphic.display_idx].memory);
-  topBuf.size.w = info->width;
-  topBuf.size.h = info->height;
-
-  GFX_Rect *pDirtyRect = &base->graphic.dirtyRect[base->graphic.display_idx];
-  // GFX_Rect rect = {0,
-  //                   0,
-  //                   info->width,
-  //                   info->height};
-
-  // base->graphic.handle = gfx_init();
   GFX_Buf inBuf;
   inBuf.fd = base->graphic.input.fd;
   inBuf.format = gfx_convert_video_format(GST_VIDEO_INFO_FORMAT(info));
@@ -480,36 +477,105 @@ static GstFlowReturn gst_aml_nn_overlay_transform_ip(GstBaseTransform *trans,
   outBuf.size.w = info->width;
   outBuf.size.h = info->height;
 
-  //GFX_Handle handle = gfx_init();
   GFX_Handle handle = base->graphic.handle;
 
-  gfx_blend(handle,
-            &inBuf, pDirtyRect,
-            &topBuf, pDirtyRect,
-            &outBuf, pDirtyRect, 0xFF,
-            0);
+  // get display buffer
+  g_mutex_lock(&base->graphic.surface_lock);
+  int display_idx = base->graphic.next_display_idx;
+  base->graphic.cur_display_idx = display_idx;
+  GST_INFO_OBJECT(self, "start display, cur_display_idx=%d next_display_idx=%d render_idx=%d",
+      base->graphic.cur_display_idx, base->graphic.next_display_idx, base->graphic.render_idx);
+  g_mutex_unlock(&base->graphic.surface_lock);
 
-  gfx_stretchblit(handle,
+  if (-1 != display_idx) {
+    // overlay display buffer to output buffer
+    GFX_Buf topBuf;
+    topBuf.fd = base->graphic.render[display_idx].fd;
+    topBuf.format = gfx_convert_video_format(TEMP_SURFACE_COLOR_FORMAT);
+    topBuf.is_ionbuf = gst_is_amlionbuf_memory(base->graphic.render[display_idx].memory);
+    topBuf.size.w = info->width;
+    topBuf.size.h = info->height;
+
+    GFX_Rect *pDirtyRect = &base->graphic.dirtyRect[display_idx];
+
+    // if input buffer support Alpha, can blend directly
+    if (inBuf.format == GST_VIDEO_FORMAT_RGBA) {
+      gfx_blend(handle,
+                &inBuf, pDirtyRect,
+                &topBuf, pDirtyRect,
+                &inBuf, pDirtyRect, 0xFF,
+                1);
+    } else {
+      gfx_blend(handle,
+                &inBuf, pDirtyRect,
+                &topBuf, pDirtyRect,
+                &outBuf, pDirtyRect, 0xFF,
+                0);
+
+      gfx_stretchblit(handle,
                 &outBuf, pDirtyRect,
                 &inBuf, pDirtyRect,
                 GFX_AML_ROTATION_0,
                 0);
 
-  // sync command to HW, wait the executed complete
-  gfx_sync_cmd(handle);
+      // sync command to HW, wait the executed complete
+      gfx_sync_cmd(handle);
+    }
 
-  // render buffer used completed
-  g_mutex_unlock(&base->surface_lock);
+    // update new render buffer
+    g_mutex_lock(&base->graphic.surface_lock);
+    if (display_idx == base->graphic.next_display_idx) {
+      // new display buffer not ready, neednot update render buffer index
+      GST_INFO_OBJECT(self, "no new dispay buffer, cur_display_idx=%d next_display_idx=%d render_idx=%d",
+          base->graphic.cur_display_idx, base->graphic.next_display_idx, base->graphic.render_idx);
+    } else {
+      base->graphic.render_idx ++;
+      if (RENDER_BUF_CNT == base->graphic.render_idx) {
+        base->graphic.render_idx = 0;
+      }
+      base->graphic.cur_display_idx = -1;
+      GST_INFO_OBJECT(self, "update render index, cur_display_idx=%d next_display_idx=%d render_idx=%d",
+          base->graphic.cur_display_idx, base->graphic.next_display_idx, base->graphic.render_idx);
+    }
 
-  //gfx_deinit(handle);
+    g_mutex_unlock(&base->graphic.surface_lock);
 
-  gettimeofday(&ed, NULL);
-  time_total = (ed.tv_sec - st.tv_sec)*1000000.0 + (ed.tv_usec - st.tv_usec);
-  GST_INFO_OBJECT(self, "gst_aml_nn_overlay_transform_ip end, time=%lf uS", time_total);
+    gettimeofday(&ed, NULL);
+    time_total = (ed.tv_sec - st.tv_sec)*1000000.0 + (ed.tv_usec - st.tv_usec);
+    GST_INFO_OBJECT(self, "Leave, time=%lf uS", time_total);
+
+#ifdef PRINT_FPS
+    // calculate fps
+    static int64_t frame_count = 0;
+    static int64_t start = 0;
+    int64_t end;
+    int64_t fps = 0;
+    int64_t tmp = 0;
+
+    if (0 == start) {
+      start = get_current_time_msec();
+    }  else{
+      /* print fps info every 100 frames */
+      if ((frame_count % PRINT_FPS_INTERVAL_S == 0)) {
+        end = get_current_time_msec();
+
+        // 0.4 drop, 0.5 add 1.
+        tmp = (PRINT_FPS_INTERVAL_S * 1000 * 10) / (end - start);
+        fps = (PRINT_FPS_INTERVAL_S * 1000) / (end - start);
+        if ((tmp % 10) >= 5) {
+          fps += 1;
+        }
+        GST_INFO_OBJECT(self, "fps: %ld", fps);
+        frame_count = 0;
+        start = end;
+      }
+    }
+    frame_count++;
+#endif
+  }
 
   return GST_BASE_TRANSFORM_CLASS(parent_class)->transform_ip(trans, outbuf);
 }
-
 
 
 
@@ -518,154 +584,199 @@ static gpointer overlay_process(void *data) {
   GstAmlOverlay *base = GST_AMLOVERLAY(self);
   GstVideoInfo *info = &base->info;
 
-  GST_INFO_OBJECT(self, "overlay_process begin");
+  GST_INFO_OBJECT(self, "Enter, m_running=%d, m_ready=%d", self->m_running, self->m_ready);
 
-  //GFX_Handle handle = gfx_init();
   GFX_Handle handle = base->graphic.handle;
 
-  while (base->_running) {
-    g_mutex_lock(&base->_mutex);
-    g_cond_wait(&base->_cond, &base->_mutex);
+  while (self->m_running) {
+    g_mutex_lock(&self->m_mutex);
+    while (!self->m_ready) {
+      g_cond_wait(&self->m_cond, &self->m_mutex);
+    }
+    self->m_ready = FALSE;
 
-    GST_INFO_OBJECT(self, "overlay_process wait _cond done");
+    GST_INFO_OBJECT(self, "wait m_cond done");
 
-    if (!base->_running) {
-      g_mutex_unlock(&base->_mutex);
+    if (!self->m_running) {
+      g_mutex_unlock(&self->m_mutex);
       continue;
     }
+
+    g_mutex_unlock(&self->m_mutex);
 
     // main process
 
+    g_mutex_lock(&self->nn.result.lock);
     if (!self->nn.enabled) {
       GST_INFO_OBJECT(self, "nn not enabled");
-      g_mutex_unlock(&base->_mutex);
+      g_mutex_unlock(&self->nn.result.lock);
       continue;
     }
-
-    // Onlu lock for nn result
-    g_mutex_lock(&self->nn.result.lock);
 
     if (!self->nn.result.buf) {
       GST_INFO_OBJECT(self, "nn.result.buf is null");
       g_mutex_unlock(&self->nn.result.lock);
-      g_mutex_unlock(&base->_mutex);
       continue;
     }
 
     // GST_INFO_OBJECT(self, "result.buf=%p, amount=%d, srcid=%d",
     //   self->nn.result.buf, self->nn.result.buf->amount, self->nn.result.srcid);
     int rect_count = self->nn.result.buf->amount;
-    GFX_Rect *pRects = g_new0(GFX_Rect, rect_count);
-    GFX_Pos *pPos = g_new0(GFX_Pos, rect_count*5);
+    NNRenderData *pNNData = g_new0(NNRenderData, rect_count);
 
     for (gint i = 0; i<rect_count; i++) {
-      struct nn_result *res = &self->nn.result.buf->results[i];
-      struct relative_pos *pt = &res->pos;
+      NNResult *res = &self->nn.result.buf->results[i];
+      NNRect *pt = &res->pos;
 
-      pRects[i].w = (int)((pt->right - pt->left) * info->width);
-      pRects[i].h = (int)((pt->bottom - pt->top) * info->height);
+      pNNData[i].rect.w = (int)((pt->right - pt->left) * info->width);
+      pNNData[i].rect.h = (int)((pt->bottom - pt->top) * info->height);
 
-      pRects[i].x = (int)(pt->left * info->width);
-      pRects[i].y = (int)(pt->top * info->height);
+      pNNData[i].rect.x = (int)(pt->left * info->width);
+      pNNData[i].rect.y = (int)(pt->top * info->height);
 
       for (gint j = 0; j<5; j++) {
-        pPos[5*i+j].x = (int)(res->fpos[j].x * info->width);
-        pPos[5*i+j].y = (int)(res->fpos[j].y * info->height);
+        pNNData[i].pos[j].x = (int)(res->fpos[j].x * info->width);
+        pNNData[i].pos[j].y = (int)(res->fpos[j].y * info->height);
       }
-      //GST_INFO_OBJECT(self, "[%d] pt(%lf %lf %lf %lf)", i, pt->left, pt->right, pt->top, pt->bottom);
     }
 
     g_mutex_unlock(&self->nn.result.lock);
 
-    // lock for input buffer, other thread will lock during render buffer read/write
-    g_mutex_lock(&base->surface_lock);
-    base->graphic.display_idx = base->graphic.render_idx;
-    base->graphic.render_idx ++;
-    if (RENDER_BUF_CNT == base->graphic.render_idx) {
-      base->graphic.render_idx = 0;
+    // swith display buffer index
+    g_mutex_lock(&base->graphic.surface_lock);
+    // if (-1 == base->graphic.render_idx) {
+    //   base->graphic.render_idx = 0;
+    // }
+
+    if (base->graphic.next_display_idx == base->graphic.render_idx) {
+      base->graphic.render_idx ++;
+      if (RENDER_BUF_CNT == base->graphic.render_idx) {
+        base->graphic.render_idx = 0;
+      }
     }
 
-    GST_INFO_OBJECT(self, "surface draw, display_idx=%d render_idx=%d", base->graphic.display_idx, base->graphic.render_idx);
-    g_mutex_unlock(&base->surface_lock);
+    GST_INFO_OBJECT(self, "surface draw, cur_display_idx=%d next_display_idx=%d render_idx=%d",
+        base->graphic.cur_display_idx, base->graphic.next_display_idx, base->graphic.render_idx);
+
+    if (base->graphic.cur_display_idx == base->graphic.render_idx) {
+      GST_INFO_OBJECT(self, "buffer full, ignore this render, cur_display_idx=%d next_display_idx=%d render_idx=%d",
+        base->graphic.cur_display_idx, base->graphic.next_display_idx, base->graphic.render_idx);
+      g_mutex_unlock(&base->graphic.surface_lock);
+      goto loop_continue;
+    }
+
+    int render_idx = base->graphic.render_idx;
+
+    g_mutex_unlock(&base->graphic.surface_lock);
 
     struct timeval st;
     struct timeval ed;
     double time_total;
     gettimeofday(&st, NULL);
 
+    GstMapInfo minfo;
+    if (!gst_memory_map(base->graphic.render[render_idx].memory, &minfo, GST_MAP_WRITE)) {
+      GST_ERROR_OBJECT(self, "failed to map new dma buffer");
+      goto loop_continue;
+    }
+
     GFX_Buf topBuf;
-    topBuf.fd = base->graphic.render[base->graphic.render_idx].fd;
+    topBuf.fd = base->graphic.render[render_idx].fd;
     topBuf.format = gfx_convert_video_format(TEMP_SURFACE_COLOR_FORMAT);
-    topBuf.is_ionbuf = gst_is_amlionbuf_memory(base->graphic.render[base->graphic.render_idx].memory);
+    topBuf.is_ionbuf = gst_is_amlionbuf_memory(base->graphic.render[render_idx].memory);
     topBuf.size.w = info->width;
     topBuf.size.h = info->height;
 
-    GFX_Rect rect = {0,
-                      0,
-                      info->width,
-                      info->height};
+    // // Fill the rectangle with transparent color in the graphic.temp.fd
+    GFX_Rect *pDirtyRect = &base->graphic.dirtyRect[render_idx];
+    // //gfx_fillrect(handle, &topBuf, pDirtyRect, 0, 1);
+    gfx_fillrect_software(handle, &topBuf, minfo.data, pDirtyRect, 0x0);
+
+    // GFX_Rect rect = {0, 0, info->width, info->height};
+    // gfx_fillrect_software(handle, &topBuf, minfo.data, &rect, 0x0);
 
     // clean the new render buffer dirty area
-    memset(&base->graphic.dirtyRect[base->graphic.render_idx], 0, sizeof(GFX_Rect));
-
-    // Fill the rectangle with transparent color in the graphic.temp.fd
-    gfx_fillrect(handle, &topBuf, &rect, 0, 0);
-
-    GstMapInfo minfo;
-    if (!gst_memory_map(base->graphic.render[base->graphic.render_idx].memory, &minfo, GST_MAP_WRITE)) {
-      GST_ERROR_OBJECT(self, "failed to map new dma buffer");
-      g_mutex_unlock(&base->_mutex);
-      continue;
-    }
+    memset(pDirtyRect, 0, sizeof(GFX_Rect));
 
     for (gint i = 0; i<rect_count; i++) {
+      GFX_Rect small_rect = {pNNData[i].rect.x,
+                            pNNData[i].rect.y,
+                            pNNData[i].rect.w,
+                            pNNData[i].rect.h};
 
-      GFX_Rect small_rect = {pRects[i].x,
-                            pRects[i].y,
-                            pRects[i].w,
-                            pRects[i].h};
+      GST_INFO_OBJECT(self, "[%d] pRects(%d %d %d %d), id:%d, label_name:%s",
+        i, pNNData[i].rect.x, pNNData[i].rect.y, pNNData[i].rect.w, pNNData[i].rect.h,
+        pNNData[i].label_id, pNNData[i].label_name);
 
-      // base->graphic.handle = gfx_init();
-
-      //GST_INFO_OBJECT(self, "[%d] pRects(%d %d %d %d)", i, pRects[i].x, pRects[i].y, pRects[i].w, pRects[i].h);
-
-      gfx_updateDirtyArea(&topBuf, &base->graphic.dirtyRect[base->graphic.render_idx], &small_rect);
+      gfx_updateDirtyArea(&topBuf, pDirtyRect, &small_rect);
 
       // Draw the border rectangle in the graphic.temp.fd
-      //gfx_drawrect(handle, &topBuf, &small_rect, self->nn.rectcolor, 6, 0);
-      gfx_drawrect_software(handle, &topBuf, minfo.data, &small_rect, self->nn.rectcolor, 8);
+      gfx_drawrect_software(handle, &topBuf, minfo.data, &small_rect, self->nn.rectcolor, DEFAULT_PROP_RECT_THICKNESS);
 
       // draw point
-      for (gint j = 0; j<5; j++) {
-        GFX_Rect posRect = {pPos[5*i+j].x,
-                        pPos[5*i+j].y,
-                        8,
-                        8};
-        gfx_drawrect_software(handle, &topBuf, minfo.data, &posRect, self->nn.rectcolor, 8);
-      }
+      // for (gint j = 0; j<5; j++) {
+      //   GFX_Rect posRect = {pNNData[i].pos[j].x,
+      //                   pNNData[i].pos[j].y,
+      //                   DEFAULT_PROP_RECT_THICKNESS,
+      //                   DEFAULT_PROP_RECT_THICKNESS};
+      //   gfx_drawrect_software(handle, &topBuf, minfo.data, &posRect, self->nn.rectcolor, DEFAULT_PROP_RECT_THICKNESS);
+      // }
     }
+    // memcpy(pDirtyRect, &rect, sizeof(GFX_Rect));
 
-    // sync command to HW, wait the executed complete
-    gfx_sync_cmd(handle);
+    gst_memory_unmap(base->graphic.render[render_idx].memory, &minfo);
 
-    if (NULL != pRects) {
-      g_free(pRects);
-      pRects = NULL;
-    }
-
-    gst_memory_unmap(base->graphic.render[base->graphic.render_idx].memory, &minfo);
+    GST_INFO_OBJECT(self, "pDirtyRect(%d %d %d %d)", pDirtyRect->x, pDirtyRect->y, pDirtyRect->w, pDirtyRect->h);
 
     gettimeofday(&ed, NULL);
     time_total = (ed.tv_sec - st.tv_sec)*1000000.0 + (ed.tv_usec - st.tv_usec);
 
-    GST_INFO_OBJECT(self, "surface draw end, time=%lf uS", time_total);
+    // update new render buffer
+    g_mutex_lock(&base->graphic.surface_lock);
+    base->graphic.next_display_idx = base->graphic.render_idx;
+    GST_INFO_OBJECT(self, "surface draw end, cur_display_idx=%d next_display_idx=%d render_idx=%d, time=%lf uS",
+        base->graphic.cur_display_idx, base->graphic.next_display_idx, base->graphic.render_idx, time_total);
+    g_mutex_unlock(&base->graphic.surface_lock);
 
-    g_mutex_unlock(&base->_mutex);
+loop_continue:
+
+    if (NULL != pNNData) {
+      g_free(pNNData);
+      pNNData = NULL;
+    }
+
+#ifdef PRINT_FPS
+    // calculate fps
+    static int64_t frame_count = 0;
+    static int64_t start = 0;
+    int64_t end;
+    int64_t fps = 0;
+    int64_t tmp = 0;
+
+    if (0 == start) {
+      start = get_current_time_msec();
+    }  else{
+      /* print fps info every 100 frames */
+      if ((frame_count % PRINT_FPS_INTERVAL_S == 0)) {
+        end = get_current_time_msec();
+
+        // 0.4 drop, 0.5 add 1.
+        tmp = (PRINT_FPS_INTERVAL_S * 1000 * 10) / (end - start);
+        fps = (PRINT_FPS_INTERVAL_S * 1000) / (end - start);
+        if ((tmp % 10) >= 5) {
+          fps += 1;
+        }
+        GST_INFO_OBJECT(self, "fps: %ld", fps);
+        frame_count = 0;
+        start = end;
+      }
+    }
+    frame_count++;
+#endif
+
   }
 
-  //gfx_deinit(handle);
-
-  GST_INFO_OBJECT(self, "overlay_process end");
+  GST_INFO_OBJECT(self, "Leave");
 
   return NULL;
 }

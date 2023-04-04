@@ -180,6 +180,29 @@ Input:
   pMemory : the buffer address
   pRect : the area in the destination buffer
   color : the color of the border
+Output:         N/A
+Return:
+  GFX_Ret_OK        call function success
+  GFX_Ret_Error     call function failed
+*************************************************/
+extern GFX_Return gfx_fillrect_software(GFX_Handle handle,
+                                        GFX_Buf *pBuf,
+                                        unsigned char *pMemory,
+                                        GFX_Rect *pRect,
+                                        int color);
+
+
+
+/*************************************************
+Function:       gfx_drawrect_software
+Description:    draw the rectangle to the buffer with CPU
+                it's sync command, no need to push to command queue
+Input:
+  handle : the handle created by gfx_init
+  pBuf : the destination buffer
+  pMemory : the buffer address
+  pRect : the area in the destination buffer
+  color : the color of the border
   thickness : the thickness of the border
 Output:         N/A
 Return:

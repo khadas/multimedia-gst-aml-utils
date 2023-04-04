@@ -1,13 +1,11 @@
-/****************************************************************************
-*
-*    Copyright (c) 2019  by amlogic Corp.  All rights reserved.
-*
-*    The material in this file is confidential and contains trade secrets
-*    of amlogic Corporation. No part of this work may be disclosed,
-*    reproduced, copied, transmitted, or used in any way for any purpose,
-*    without the express written permission of amlogic Corporation.
-*
-*****************************************************************************/
+/*
+ * Copyright (c) 2022 Amlogic, Inc. All rights reserved.
+ *
+ * This source code is subject to the terms and conditions defined in the
+ * file 'LICENSE' which is part of this source code package.
+ *
+ * aml_nndemo
+ */
 
 #ifndef _AMLNNDEMO_H
 #define _AMLNNDEMO_H
@@ -274,21 +272,8 @@ typedef struct __nn_face_rfb_detect
     detBox facebox[MAX_DETECT_NUM];
     point_t pos[MAX_DETECT_NUM][5];
 }face_rfb_detect_out_t;
-/////////////////////common type//////////////////////
-/*
-void softmax(float *input, int n, float temp, float *output);
-void flatten(float *x, int size, int layers, int batch, int forward);
-void do_nms_sort(box *boxes, float **probs, int total, int classes, float thresh);
-int nms_comparator(const void *pa, const void *pb);
-float box_iou(box a, box b);
-float box_union(box a, box b);
-float box_intersection(box a, box b);
-float overlap(float x1, float w1, float x2, float w2);
-float logistic_activate(float x);
-float sigmod(float x);
-unsigned char *transpose(const unsigned char * src,int width,int height);
-*/
+
 #ifdef __cplusplus
 } //extern "C"
 #endif
-#endif // _AMLNNSDK_H
+#endif

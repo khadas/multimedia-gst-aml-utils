@@ -45,38 +45,54 @@ G_BEGIN_DECLS
 typedef struct _GstAmlNNOverlay GstAmlNNOverlay;
 typedef struct _GstAmlNNOverlayClass GstAmlNNOverlayClass;
 
-struct relative_pos {
+
+// must sync with gstamlnn.c
+//////////////////////////////////////////////////////////////////////
+typedef struct _NNRect {
   float left;
   float top;
   float right;
   float bottom;
-};
+}NNRect;
 
-struct facepoint_pos {
+typedef struct _NNPoint {
   float x;
   float y;
-};
+}NNPoint;
 
-#define FACE_INFO_BUFSIZE 1024
-struct nn_result {
-  struct relative_pos pos;
-  struct facepoint_pos fpos[5];
-  char info[FACE_INFO_BUFSIZE];   // string
-};
+#define MAX_NN_LABEL_LENGTH 256
+typedef struct _NNResult {
+  NNRect pos;
+  NNPoint fpos[5];
+  int label_id;                        ///> Classification of label ID
+  char label_name[MAX_NN_LABEL_LENGTH];   ///> Label name
+}NNResult;
 
-struct nn_result_buffer {
+typedef struct _NNResultBuffer {
   gint amount; // amount of result
-  struct nn_result *results;
-};
+  NNResult *results;
+}NNResultBuffer;
+//////////////////////////////////////////////////////////////////////
 
-#define NN_MAX_RECT 20
-struct face_rects {
-  struct aml_overlay_surface surface;
-  struct aml_overlay_location location;
-};
+
+
+typedef struct _NNRenderData {
+  GFX_Rect rect;
+  GFX_Pos pos[5];
+  int label_id;                        ///> Classification of label ID
+  char label_name[MAX_NN_LABEL_LENGTH];   ///> Label name
+}NNRenderData;
+
 
 struct _GstAmlNNOverlay {
   GstAmlOverlay element;
+
+  /*< private >*/
+  gboolean m_running;
+  gboolean m_ready;
+
+  GMutex m_mutex;  // For condition
+  GCond m_cond;
 
   /*< private >*/
   struct {
@@ -85,7 +101,7 @@ struct _GstAmlNNOverlay {
     guint rectcolor;
     struct aml_overlay_surface hfont;
     struct {
-      struct nn_result_buffer *buf;
+      NNResultBuffer *buf;
 
       // lock result data and surface opt
       GMutex lock;

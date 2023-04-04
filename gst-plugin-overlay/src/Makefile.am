@@ -14,9 +14,7 @@ libgstamloverlay_la_CFLAGS = $(GST_CFLAGS) \
 libgstamloverlay_la_LIBADD = $(GST_LIBS) \
  		    	     -lgst-aml-ion-allocator \
  		    	     -lgst-aml-gfx2d \
-	    	         -lgst-aml-imgproc \
- 		    	     -lge2d \
-		             -ljpeg
+ 		    	     -lge2d
 
 libgstamloverlay_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS)
 libgstamloverlay_la_LIBTOOLFLAGS = --tag=disable-static

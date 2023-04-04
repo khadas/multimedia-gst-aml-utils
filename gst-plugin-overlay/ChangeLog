@@ -1,3 +1,10 @@
+2023-04-04  Guoping Li <guoping.li@amlogic.com>
+	* add fps counter
+	* change pad capability seqency, move RGBA to first, avoid 2 copys
+	* change fillrect to sw
+	* fix union rectangle bug
+	* debug multiple thread, for more performance
+
 2023-03-22  Guoping Li <guoping.li@amlogic.com>
 	* change overlay plugin to support face detect and yolo v3.
         * use thread to draw rectangle to reander buffer, improve performance

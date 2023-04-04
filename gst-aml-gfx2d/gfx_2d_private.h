@@ -29,7 +29,7 @@
 #include <gst/gst.h>
 
 
-#define GFX_LOG_ENABLE 0
+#define GFX_LOG_ENABLE 1
 
 #define GFX_SUPPORT_CMD_Q 0
 
@@ -46,6 +46,11 @@
 typedef struct _gfx_info {
   aml_ge2d_t ge2d;
 }gfx_info;
+
+
+
+#define MAX(a,b) ((a) > (b) ? (a) : (b))
+#define MIN(a,b) ((a) < (b) ? (a) : (b))
 
 
 

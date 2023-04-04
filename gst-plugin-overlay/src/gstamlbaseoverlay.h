@@ -116,18 +116,8 @@ struct _GstAmlOverlay {
   GstBaseTransform element;
 
   /*< private >*/
-  // for render surface
-  GMutex surface_lock;
-  gboolean _running;
-  GThread *_thread;
-  gboolean _ready;
-
+  GThread *m_thread;
   work_process process;
-
-  // use with condition
-  GMutex _mutex;
-  GCond _cond;
-
   GstAllocator *dmabuf_alloc;
 
   // memories for graphic transaction
@@ -141,10 +131,15 @@ struct _GstAmlOverlay {
     // The dirtyRect of render buffer
     GFX_Rect dirtyRect[RENDER_BUF_CNT];
 
+    // for display render buffer (render_idx/display_idx)
+    GMutex surface_lock;
+
     // current render buffer index
     int render_idx;
-    int display_idx;
+    int cur_display_idx;
+    int next_display_idx;
 
+    // gfx2d handle
     void *handle;
     gint width;
     gint height;
