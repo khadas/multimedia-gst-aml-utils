@@ -6,13 +6,12 @@ all: $(TARGET)
 
 CXXFLAGS+=-std=c++14
 CFLAGS = -Wall -Wextra -fPIC -Os
-LDFLAGS +=  -L$(STAGING_DIR)/usr/lib/ -lstdc++ -lm -lpthread -ljpeg -lnnsdk
+LDFLAGS +=  -L$(STAGING_DIR)/usr/lib/ -lstdc++ -lm -lpthread -lnnsdk
 
 LDFLAGS +=  -L/lib/lib64
 
 CFLAGS += \
 	-I inc/ \
-	-I$(STAGING_DIR)/usr/include/opencv4/ \
 	-I$(STAGING_DIR)/usr/include/
 
 $(info "the value of CFLAGS is$(CFLAGS)")
