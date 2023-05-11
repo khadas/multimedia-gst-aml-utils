@@ -360,12 +360,12 @@ typedef struct {
 
 typedef struct {
     unsigned int         cpuinfo;
-    unsigned char        platform_type;
     char*                sdk_version;
     char*                ddk_version;
     char*                hw_version;
     aml_hw_type_t        hw_type;
     aml_npu_hw_info_t    npu_hw_info;
+    unsigned int         platform_type;
 } aml_platform_info_t;
 
 typedef struct {

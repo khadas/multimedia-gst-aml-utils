@@ -2,11 +2,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <dlfcn.h>
+
+#define USE_DMA_BUFFER
+
 #include <math.h>
 #include <float.h>
 #include <unistd.h>
 using namespace std;
 
+static unsigned char temp[112*112*3];
 static unsigned char *inbuf_det = NULL;
 static unsigned char *inbuf_reg = NULL;
 static unsigned char *outbuf = NULL;
@@ -25,6 +29,8 @@ static unsigned char *outbuf = NULL;
 
 
 static struct timeval g_start = {0};
+static struct timeval g_end = {0};
+static double g_timecost = 0.0f;
 
 extern "C"
 
@@ -101,6 +107,18 @@ const char * file_name[DET_BUTT]= {
 
 // change to 128 avoid buffer overflow
 static char model_path[128];
+
+static const char *coco_names[] = {"person","bicycle","car","motorbike","aeroplane","bus","train",
+                "truck","boat","traffic light","fire hydrant","stop sign","parking meter",
+                "bench","bird","cat","dog","horse","sheep","cow","elephant","bear","zebra",
+                "giraffe","backpack","umbrella","handbag","tie","suitcase","frisbee","skis",
+                "snowboard","sports ball","kite","baseball bat","baseball glove","skateboard",
+                "surfboard","tennis racket","bottle","wine glass","cup","fork","knife","spoon",
+                "bowl","banana","apple","sandwich","orange","broccoli","carrot","hot dog","pizza",
+                "donut","cake","chair","sofa","pottedplant","bed","diningtable","toilet","tvmonitor",
+                "laptop","mouse","remote","keyboard","cell phone","microwave","oven","toaster","sink",
+                "refrigerator","book","clock","vase","scissors","teddy bear","hair drier","toothbrush"};
+
 int get_input_size(det_model_type mtype);
 
 static det_status_t check_input_param(input_image_t imageData, det_model_type modelType)
@@ -293,6 +311,7 @@ det_status_t det_set_model(det_model_type modelType)
     det_get_model_name(data_file_path,g_dev_type,modelType);
     size = get_input_size(modelType);
 
+    LOGE("module_create, model_path=%s",model_path);
     config.path = (const char *)model_path;
     config.nbgType = NN_NBG_FILE;
     config.typeSize = sizeof(aml_config);
@@ -649,8 +668,15 @@ det_status_t det_get_result(pDetResult resultData, det_model_type modelType)
         break;
     }
 
-    outconfig.perfMode = AML_NO_PERF;
+    outconfig.perfMode = AML_PERF_OUTPUT_SET;
     nn_out = (nn_output*)net->process.module_output_get(net->context,outconfig);
+
+    outconfig.perfMode = AML_PERF_INFERENCE;
+    nn_out = (nn_output*)net->process.module_output_get(net->context,outconfig);
+
+    outconfig.perfMode = AML_PERF_OUTPUT_GET;
+    nn_out = (nn_output*)net->process.module_output_get(net->context,outconfig);
+
     out = (void*)net->process.post_process(modelType_sdk,nn_out);
 
     if (out == NULL) {
