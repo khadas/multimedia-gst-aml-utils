@@ -30,7 +30,6 @@
 #include <gst/gst.h>
 #include <gst/base/gstbasesink.h>
 #include <nn_detect.h>
-#include "list.h"
 
 G_BEGIN_DECLS
 
@@ -76,21 +75,12 @@ typedef struct _model_info {
   int prepare_idx;
 } ModelInfo;
 
-typedef struct _recog_db_param {
-    gchar *format;
-    gfloat threshold;
-    gchar *file;
-    void *handle;
-    gboolean bstore_face;
-} RecogDBParam;
 
 struct _GstAmlNN {
   GstBaseTransform element;
-  /* properties */
-  RecogDBParam db_param;
 
   /*< private >*/
-  ModelInfo face_det, face_recog;
+  ModelInfo face_det;
 
   gint max_detect_num;
 
@@ -108,12 +98,6 @@ struct _GstAmlNN {
 
   GstVideoInfo info;
   gboolean is_info_set;
-
-  gchar *custimg;
-  gboolean b_process_custimg;
-
-  struct listnode recognized_list;
-  gint recog_trigger_timeout;
 };
 
 struct _GstAmlNNClass {

@@ -49,9 +49,6 @@
 #include <gst/gst.h>
 #include <gst/video/video.h>
 
-#include "facedb.h"
-#include "jpeg.h"
-
 #include "gstamlnn.h"
 
 #include "gfx_2d.h"
@@ -115,32 +112,15 @@ typedef struct _NNResultBuffer {
 
 #define DEFAULT_PROP_FACE_DET_MODEL DET_AML_FACE_DETECTION
 
-#define DEFAULT_PROP_FACE_RECOG_MODEL DET_AML_FACE_RECOGNITION
-#define DEFAULT_PROP_FORMAT "uid,name"
-#define DEFAULT_PROP_DBPATH ""
-#define DEFAULT_PROP_THRESHOLD 0.6
-#define DEFAULT_PROP_RECOG_TRIGGER_TIMEOUT 2
 #define DEFAULT_PROP_MAX_DET_NUM 10
 
 
 #define NN_INPUT_BUF_FORMAT GST_VIDEO_FORMAT_RGB
 
-/* Filter signals and args */
-enum {
-  SIGNAL_FACE_RECOGNIZED,
-  LAST_SIGNAL
-};
-
-static guint gst_amlnn_signals[LAST_SIGNAL] = { 0 };
 
 enum {
   PROP_0,
   PROP_FACE_DET_MODEL,
-  PROP_FACE_RECOG_MODEL,
-  PROP_DBPATH,
-  PROP_FORMAT,
-  PROP_THRESHOLD,
-  PROP_RECOG_TRIGGER_TIMEOUT,
   PROP_MAX_DET_NUM,
 };
 
@@ -160,22 +140,6 @@ static GType gst_aml_face_det_model_get_type(void) {
   return aml_face_det_model;
 }
 
-#define GST_TYPE_AML_FACE_RECOG_MODEL (gst_aml_face_recog_model_get_type())
-static GType gst_aml_face_recog_model_get_type(void) {
-  static GType aml_face_recog_model = 0;
-  static const GEnumValue aml_face_recog_models[] = {
-      {DET_FACENET, "facenet", "facenet"},
-      {DET_AML_FACE_RECOGNITION, "aml_face_recognition", "aml_face_recognition"},
-      {DET_BUTT, "disable", "disable"},
-      {0, NULL, NULL},
-  };
-
-  if (!aml_face_recog_model) {
-    aml_face_recog_model =
-        g_enum_register_static("GstAMLFaceRecogModel", aml_face_recog_models);
-  }
-  return aml_face_recog_model;
-}
 
 /* the capabilities of the inputs and outputs.
  */
@@ -223,8 +187,6 @@ static GstFlowReturn gst_aml_nn_transform_ip(GstBaseTransform *base,
 static gboolean gst_aml_nn_set_caps(GstBaseTransform *base, GstCaps *incaps,
                                     GstCaps *outcaps);
 
-static gboolean gst_aml_nn_sink_event(GstBaseTransform *base, GstEvent *event);
-
 static gboolean detection_init(GstAmlNN *self);
 static gpointer amlnn_process(void *data);
 static void push_result(GstBaseTransform *base, NNResultBuffer *resbuf);
@@ -243,49 +205,12 @@ static void gst_aml_nn_class_init(GstAmlNNClass *klass) {
   gobject_class->get_property = gst_aml_nn_get_property;
   gobject_class->finalize = gst_aml_nn_finalize;
 
-  gst_amlnn_signals[SIGNAL_FACE_RECOGNIZED] = g_signal_new(
-      "face-recognized", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL,
-      NULL, NULL, G_TYPE_NONE, 2, G_TYPE_INT, G_TYPE_STRING);
-
   g_object_class_install_property(
       G_OBJECT_CLASS(klass), PROP_FACE_DET_MODEL,
       g_param_spec_enum("detection-model", "detection-model",
                         "face detection model", GST_TYPE_AML_FACE_DET_MODEL,
                         DEFAULT_PROP_FACE_DET_MODEL,
                         G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property(
-      G_OBJECT_CLASS(klass), PROP_FACE_RECOG_MODEL,
-      g_param_spec_enum("recognition-model", "recognition-model",
-                        "face recognition model", GST_TYPE_AML_FACE_RECOG_MODEL,
-                        DEFAULT_PROP_FACE_RECOG_MODEL,
-                        G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property(
-      G_OBJECT_CLASS(klass), PROP_DBPATH,
-      g_param_spec_string(
-          "db-path", "db-path", "database location of face recognition",
-          DEFAULT_PROP_DBPATH, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property(
-      G_OBJECT_CLASS(klass), PROP_FORMAT,
-      g_param_spec_string("result-format", "result-format",
-                          "string format of face recognition result",
-                          DEFAULT_PROP_FORMAT,
-                          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property(
-      gobject_class, PROP_THRESHOLD,
-      g_param_spec_float(
-          "threshold", "Threshold", "threshold of face recognition", 0.01, 1.50,
-          DEFAULT_PROP_THRESHOLD, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property(
-      gobject_class, PROP_RECOG_TRIGGER_TIMEOUT,
-      g_param_spec_int(
-          "recog-trigger-timeout", "Recognition-Trigger-Timeout", "timeout of recognition trigger for single face (seconds)", 1, 60,
-          DEFAULT_PROP_RECOG_TRIGGER_TIMEOUT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
   g_object_class_install_property(
       gobject_class, PROP_MAX_DET_NUM,
       g_param_spec_int(
@@ -311,9 +236,6 @@ static void gst_aml_nn_class_init(GstAmlNNClass *klass) {
   GST_BASE_TRANSFORM_CLASS(klass)->start = GST_DEBUG_FUNCPTR(gst_aml_nn_open);
   GST_BASE_TRANSFORM_CLASS(klass)->stop = GST_DEBUG_FUNCPTR(gst_aml_nn_close);
 
-  GST_BASE_TRANSFORM_CLASS(klass)->sink_event =
-      GST_DEBUG_FUNCPTR(gst_aml_nn_sink_event);
-
   GST_BASE_TRANSFORM_CLASS(klass)->transform_ip_on_passthrough = FALSE;
 }
 
@@ -326,15 +248,6 @@ static void gst_aml_nn_init(GstAmlNN *nn) {
   memset(&nn->face_det, 0, sizeof(ModelInfo));
   nn->face_det.model = DEFAULT_PROP_FACE_DET_MODEL;
   nn->max_detect_num = DEFAULT_PROP_MAX_DET_NUM;
-  memset(&nn->face_recog, 0, sizeof(ModelInfo));
-  nn->face_recog.model = DEFAULT_PROP_FACE_RECOG_MODEL;
-
-  nn->db_param.handle = NULL;
-  nn->db_param.file = g_strdup(DEFAULT_PROP_DBPATH);
-  nn->db_param.format = g_strdup(DEFAULT_PROP_FORMAT);
-  nn->db_param.threshold = DEFAULT_PROP_THRESHOLD;
-  nn->db_param.bstore_face = FALSE;
-  nn->custimg = NULL;
 
   nn->handle = NULL;
 
@@ -347,9 +260,6 @@ static void gst_aml_nn_init(GstAmlNN *nn) {
   nn->face_det.next_nn_idx = -1;
 
   nn->m_ready = FALSE;
-
-  list_init(&nn->recognized_list);
-  nn->recog_trigger_timeout = DEFAULT_PROP_RECOG_TRIGGER_TIMEOUT;
 
   // set debug log level
   det_set_log_config(DET_DEBUG_LEVEL_WARN,DET_LOG_TERMINAL);
@@ -416,24 +326,6 @@ static gboolean close_model(ModelInfo *m) {
   return TRUE;
 }
 
-static gboolean open_db(RecogDBParam *param) {
-  if (param->handle != NULL)
-    return TRUE;
-
-  if (param->file[0] != '\0') {
-    param->handle = db_init(param->file);
-    db_set_threshold(param->threshold);
-  }
-  return param->handle != NULL;
-}
-
-static gboolean close_db(RecogDBParam *param) {
-  if (param->handle == NULL)
-    return TRUE;
-  db_deinit(param->handle);
-  param->handle = NULL;
-  return TRUE;
-}
 
 struct idle_task_data {
   GstAmlNN *self;
@@ -442,12 +334,6 @@ struct idle_task_data {
       ModelInfo *minfo;
       det_model_type new_model;
     } model;
-    struct _db {
-      gchar *file;
-    } db;
-    struct _img {
-      gchar *file;
-    } img;
   } u;
 };
 
@@ -474,55 +360,6 @@ static gboolean idle_close_model(struct idle_task_data *data) {
   return G_SOURCE_REMOVE;
 }
 
-static gboolean idle_close_db(struct idle_task_data *data) {
-  if (data == NULL || data->self == NULL || data->self->m_running == FALSE ||
-      data->u.db.file == NULL) {
-    return G_SOURCE_REMOVE;
-  }
-
-  GstAmlNN *self = data->self;
-
-  g_mutex_lock(&self->m_mutex);
-  close_db(&self->db_param);
-  g_free(self->db_param.file);
-  self->db_param.file = data->u.db.file;
-  g_mutex_unlock(&self->m_mutex);
-
-  g_free(data);
-  return G_SOURCE_REMOVE;
-}
-
-static gboolean idle_request_capface(struct idle_task_data *data) {
-  if (data == NULL || data->self == NULL || data->self->m_running == FALSE) {
-    return G_SOURCE_REMOVE;
-  }
-
-  GstAmlNN *self = data->self;
-
-  g_mutex_lock(&self->m_mutex);
-  self->db_param.bstore_face = TRUE;
-  g_mutex_unlock(&self->m_mutex);
-
-  g_free(data);
-  return G_SOURCE_REMOVE;
-}
-
-static gboolean idle_request_capface_from_image(struct idle_task_data *data) {
-  if (data == NULL || data->self == NULL || data->self->m_running == FALSE ||
-      data->u.img.file == NULL) {
-    return G_SOURCE_REMOVE;
-  }
-
-  GstAmlNN *self = data->self;
-
-  g_mutex_lock(&self->m_mutex);
-  if (self->custimg) g_free(self->custimg);
-  self->custimg = data->u.img.file;
-  g_mutex_unlock(&self->m_mutex);
-
-  g_free(data);
-  return G_SOURCE_REMOVE;
-}
 
 static void gst_aml_nn_set_property(GObject *object, guint prop_id,
                                     const GValue *value, GParamSpec *pspec) {
@@ -544,47 +381,6 @@ static void gst_aml_nn_set_property(GObject *object, guint prop_id,
       }
     }
   } break;
-  case PROP_FACE_RECOG_MODEL: {
-    det_model_type m = g_value_get_enum(value);
-    if (m != self->face_recog.model) {
-      if (self->face_recog.initialized) {
-        struct idle_task_data *data = g_new(struct idle_task_data, 1);
-        data->self = self;
-        data->u.model.minfo = &self->face_recog;
-        data->u.model.new_model = m;
-        // close recognition model for the next reinitialization
-        g_idle_add((GSourceFunc)idle_close_model, data);
-      } else {
-        self->face_recog.model = m;
-      }
-    }
-  } break;
-  case PROP_DBPATH: {
-    gchar *file = g_value_dup_string(value);
-    if (g_strcmp0(file, self->db_param.file)) {
-      if (self->db_param.handle != NULL) {
-        struct idle_task_data *data = g_new(struct idle_task_data, 1);
-        data->self = self;
-        data->u.db.file = file;
-        g_idle_add((GSourceFunc)idle_close_db, data);
-      } else {
-        self->db_param.file = file;
-      }
-    } else {
-      g_free(file);
-    }
-  } break;
-  case PROP_FORMAT:
-    g_free(self->db_param.format);
-    self->db_param.format = g_value_dup_string(value);
-    break;
-  case PROP_THRESHOLD:
-    self->db_param.threshold = g_value_get_float(value);
-    db_set_threshold(self->db_param.threshold);
-    break;
-  case PROP_RECOG_TRIGGER_TIMEOUT:
-    self->recog_trigger_timeout = g_value_get_int(value);
-    break;
   case PROP_MAX_DET_NUM: {
     int n = g_value_get_int(value);
     if (self->face_det.initialized && n != self->max_detect_num) {
@@ -606,20 +402,6 @@ static void gst_aml_nn_get_property(GObject *object, guint prop_id,
   case PROP_FACE_DET_MODEL:
     g_value_set_enum(value, self->face_det.model);
     break;
-  case PROP_FACE_RECOG_MODEL:
-    g_value_set_enum(value, self->face_recog.model);
-    break;
-  case PROP_DBPATH:
-    g_value_set_string(value, self->db_param.file);
-    break;
-  case PROP_FORMAT:
-    g_value_set_string(value, self->db_param.format);
-    break;
-  case PROP_THRESHOLD:
-    g_value_set_float(value, self->db_param.threshold);
-    break;
-  case PROP_RECOG_TRIGGER_TIMEOUT:
-    g_value_set_int(value, self->recog_trigger_timeout);
   case PROP_MAX_DET_NUM:
     g_value_set_int(value, self->max_detect_num);
     break;
@@ -658,11 +440,6 @@ static gboolean gst_aml_nn_close(GstBaseTransform *base) {
   g_thread_join(self->m_thread);
   self->m_thread = NULL;
 
-  if (self->custimg) {
-    g_free(self->custimg);
-    self->custimg = NULL;
-  }
-
   if (self->handle) {
     gfx_deinit(self->handle);
     self->handle = NULL;
@@ -681,10 +458,9 @@ static gboolean gst_aml_nn_close(GstBaseTransform *base) {
     }                                                                          \
   } while (0)
 
+
 static void gst_aml_nn_finalize(GObject *object) {
   GstAmlNN *self = GST_AMLNN(object);
-  FREE_STRING(self->db_param.file);
-  FREE_STRING(self->db_param.format);
   G_OBJECT_CLASS(parent_class)->finalize(object);
 }
 
@@ -703,40 +479,6 @@ static gboolean gst_aml_nn_set_caps(GstBaseTransform *base, GstCaps *incaps,
   return TRUE;
 }
 
-/* GstBaseTransform vmethod implementations */
-static gboolean gst_aml_nn_sink_event(GstBaseTransform *base, GstEvent *event) {
-  GstAmlNN *self = GST_AMLNN(base);
-
-  switch (GST_EVENT_TYPE(event)) {
-  case GST_EVENT_CUSTOM_DOWNSTREAM_OOB: {
-    const GstStructure *st = gst_event_get_structure(event);
-
-    // GST_INFO_OBJECT(self, "GST_EVENT_CUSTOM_DOWNSTREAM_OOB");
-
-    if (gst_structure_has_name(st, "do-image-facecap")) {
-
-      GST_INFO_OBJECT(self, "do-image-facecap");
-
-      const GValue *value = gst_structure_get_value(st, "image-path");
-      struct idle_task_data *data = g_new(struct idle_task_data, 1);
-      data->self = self;
-      data->u.img.file = g_value_dup_string (value);
-      g_idle_add((GSourceFunc)idle_request_capface_from_image, data);
-    }
-    if (gst_structure_has_name(st, "do-facecap")) {
-
-      GST_INFO_OBJECT(self, "do-facecap");
-
-      struct idle_task_data *data = g_new(struct idle_task_data, 1);
-      data->self = self;
-      g_idle_add((GSourceFunc)idle_request_capface, data);
-    }
-  } break;
-  default:
-    break;
-  }
-  return GST_BASE_TRANSFORM_CLASS(parent_class)->sink_event(base, event);
-}
 
 static void push_result(GstBaseTransform *base,
                         NNResultBuffer *resbuf) {
@@ -773,46 +515,6 @@ static void push_result(GstBaseTransform *base,
   }
   gst_buffer_unref(gstbuf);
 }
-
-static GstMemory *process_custom_image(GstAmlNN *self) {
-  int width, height, stride;
-  GstMemory *input_memory = NULL;
-  GstMapInfo minfo;
-
-  // read image to input memory
-  GST_INFO_OBJECT(self, "processing image: %s", self->custimg);
-  if (!jpeg_to_rgb888(self->custimg, &width, &height, &stride, NULL)) {
-    goto fail_exit;
-  }
-
-  gint input_size = stride * height;
-  input_memory = gst_allocator_alloc(self->dmabuf_alloc, input_size, NULL);
-  if (input_memory == NULL) {
-    GST_ERROR_OBJECT(self, "failed to allocate new dma buffer");
-    goto fail_exit;
-  }
-  if (!gst_memory_map(input_memory, &minfo, GST_MAP_WRITE)) {
-    GST_ERROR_OBJECT(self, "failed to map new dma buffer");
-    goto fail_exit;
-  }
-
-  if (!jpeg_to_rgb888(self->custimg, &width, &height, &stride, minfo.data)) {
-    GST_ERROR_OBJECT(self, "failed to generate rgb data from %s",
-                     self->custimg);
-    gst_memory_unmap(input_memory, &minfo);
-    goto fail_exit;
-  }
-  gst_memory_unmap(input_memory, &minfo);
-
-  GST_INFO_OBJECT(self, "image size: %dx%d", width, height);
-
-fail_exit:
-  if (input_memory) {
-    gst_memory_unref (input_memory);
-  }
-  return input_memory;
-}
-
 
 
 static gboolean detection_init(GstAmlNN *self) {
@@ -1038,17 +740,8 @@ static gpointer amlnn_process(void *data) {
       goto loop_continue;
     }
 
-    if (self->custimg) {
-      GST_INFO_OBJECT(self, "custimg=%s", self->custimg);
-      process_custom_image(self);
-      g_free(self->custimg);
-      self->custimg = NULL;
-      self->db_param.bstore_face = TRUE;
-      is_normal_process = FALSE;
-    } else{
-      is_normal_process = TRUE;
-      GST_INFO_OBJECT(self, "is_normal_process=%d", is_normal_process);
-    }
+    is_normal_process = TRUE;
+    GST_INFO_OBJECT(self, "is_normal_process=%d", is_normal_process);
 
     detection_process(self, &resbuf);
 
@@ -1105,9 +798,7 @@ static gpointer amlnn_process(void *data) {
   }
 
   // exiting
-  close_db(&self->db_param);
   close_model(&self->face_det);
-  close_model(&self->face_recog);
 
   return NULL;
 }
