@@ -60,14 +60,12 @@
 #include <time.h>
 
 
-// use fake detect
-//#define USE_FAKE_DETECT
-
-
 #define PRINT_FPS
 
 #ifdef PRINT_FPS
 #define PRINT_FPS_INTERVAL_S 120
+
+#define DET_LOG_LEVEL DET_DEBUG_LEVEL_WARN
 
 static int64_t get_current_time_msec(void) {
   struct timeval tv;
@@ -112,7 +110,7 @@ typedef struct _NNResultBuffer {
 
 #define DEFAULT_PROP_FACE_DET_MODEL DET_AML_FACE_DETECTION
 
-#define DEFAULT_PROP_MAX_DET_NUM 10
+#define DEFAULT_PROP_MAX_DET_NUM DETECT_NUM
 
 
 #define NN_INPUT_BUF_FORMAT GST_VIDEO_FORMAT_RGB
@@ -187,8 +185,8 @@ static GstFlowReturn gst_aml_nn_transform_ip(GstBaseTransform *base,
 static gboolean gst_aml_nn_set_caps(GstBaseTransform *base, GstCaps *incaps,
                                     GstCaps *outcaps);
 
-static gboolean detection_init(GstAmlNN *self);
 static gpointer amlnn_process(void *data);
+static gpointer amlnn_post_process(void *data);
 static void push_result(GstBaseTransform *base, NNResultBuffer *resbuf);
 /* GObject vmethod implementations */
 
@@ -239,6 +237,7 @@ static void gst_aml_nn_class_init(GstAmlNNClass *klass) {
   GST_BASE_TRANSFORM_CLASS(klass)->transform_ip_on_passthrough = FALSE;
 }
 
+
 /* initialize the new element
  * initialize instance structure
  */
@@ -251,18 +250,26 @@ static void gst_aml_nn_init(GstAmlNN *nn) {
 
   nn->handle = NULL;
 
-  g_cond_init(&nn->m_cond);
-  g_mutex_init(&nn->m_mutex);
   g_mutex_init(&nn->face_det.buffer_lock);
-
   nn->face_det.prepare_idx = -1;
   nn->face_det.cur_nn_idx = -1;
   nn->face_det.next_nn_idx = -1;
 
-  nn->m_ready = FALSE;
+  // nn main thread
+  ThreadInfo *pThread = &nn->m_nn_thread;
+  g_cond_init(&pThread->m_cond);
+  g_mutex_init(&pThread->m_mutex);
+  pThread->m_ready = FALSE;
+
+  // nn post process thread
+  pThread = &nn->m_pp_thread;
+  g_cond_init(&pThread->m_cond);
+  g_mutex_init(&pThread->m_mutex);
+  pThread->m_ready = FALSE;
 
   // set debug log level
-  det_set_log_config(DET_DEBUG_LEVEL_WARN,DET_LOG_TERMINAL);
+  // det_set_log_config(DET_DEBUG_LEVEL_WARN, DET_LOG_TERMINAL);
+  det_set_log_config(DET_LOG_LEVEL, DET_LOG_TERMINAL);
 
   // init DMA
   if (nn->dmabuf_alloc == NULL) {
@@ -291,12 +298,6 @@ static gboolean open_model(ModelInfo *m) {
     return FALSE;
   }
 
-#ifdef USE_FAKE_DETECT
-  //TODO : fleet temp
-  m->width = 640;
-  m->height = 384;
-  m->channel = 3;
-#endif
 
   m->rowbytes = m->width * m->channel;
   m->stride = (m->rowbytes + 31) & ~31;
@@ -338,7 +339,7 @@ struct idle_task_data {
 };
 
 static gboolean idle_close_model(struct idle_task_data *data) {
-  if (data == NULL || data->self == NULL || data->self->m_running == FALSE ||
+  if (data == NULL || data->self == NULL ||
       data->u.model.minfo == NULL) {
     return G_SOURCE_REMOVE;
   }
@@ -346,15 +347,26 @@ static gboolean idle_close_model(struct idle_task_data *data) {
   GstAmlNN *self = data->self;
   ModelInfo *minfo = data->u.model.minfo;
 
-  g_mutex_lock(&self->m_mutex);
+  ThreadInfo *pThread = &self->m_nn_thread;
+  ThreadInfo *pPPThread = &self->m_pp_thread;
+  g_mutex_lock(&pThread->m_mutex);
+
+  if (pThread->m_running == FALSE &&
+      pPPThread->m_running == FALSE) {
+    return G_SOURCE_REMOVE;
+  }
+
   // close detect model for the next reinitialization
   close_model(minfo);
   minfo->model = data->u.model.new_model;
+
+  g_mutex_lock(&pPPThread->m_mutex);
   if (data->u.model.new_model == DET_BUTT) {
     // notify the overlay to clear info
     push_result (&self->element, NULL);
   }
-  g_mutex_unlock(&self->m_mutex);
+  g_mutex_unlock(&pPPThread->m_mutex);
+  g_mutex_unlock(&pThread->m_mutex);
 
   g_free(data);
   return G_SOURCE_REMOVE;
@@ -414,7 +426,7 @@ static void gst_aml_nn_get_property(GObject *object, guint prop_id,
 static gboolean gst_aml_nn_open(GstBaseTransform *base) {
   GstAmlNN *self = GST_AMLNN(base);
 
-  det_set_log_config(DET_DEBUG_LEVEL_ERROR, DET_LOG_TERMINAL);
+  det_set_log_config(DET_LOG_LEVEL, DET_LOG_TERMINAL);
 
   self->handle = gfx_init();
   if (self->handle == NULL) {
@@ -422,8 +434,13 @@ static gboolean gst_aml_nn_open(GstBaseTransform *base) {
     return FALSE;
   }
 
-  self->m_running = TRUE;
-  self->m_thread = g_thread_new("nn process", amlnn_process, self);
+  ThreadInfo *pThread = &self->m_nn_thread;
+  pThread->m_running = TRUE;
+  pThread->m_thread = g_thread_new("nn-process", amlnn_process, self);
+
+  pThread = &self->m_pp_thread;
+  pThread->m_running = TRUE;
+  pThread->m_thread = g_thread_new("nn-post-process", amlnn_post_process, self);
   return TRUE;
 }
 
@@ -431,15 +448,30 @@ static gboolean gst_aml_nn_close(GstBaseTransform *base) {
   GstAmlNN *self = GST_AMLNN(base);
 
   GST_DEBUG_OBJECT(self, "closing, waiting for lock");
-  self->m_running = FALSE;
-  g_mutex_lock(&self->m_mutex);
-  self->m_ready = TRUE;
-  g_cond_signal(&self->m_cond);
-  g_mutex_unlock(&self->m_mutex);
 
-  g_thread_join(self->m_thread);
-  self->m_thread = NULL;
+  // nn process
+  ThreadInfo *pThread = &self->m_nn_thread;
+  pThread->m_running = FALSE;
+  g_mutex_lock(&pThread->m_mutex);
+  pThread->m_ready = TRUE;
+  g_cond_signal(&pThread->m_cond);
+  g_mutex_unlock(&pThread->m_mutex);
 
+  g_thread_join(pThread->m_thread);
+  pThread->m_thread = NULL;
+
+  // nn post process
+  pThread = &self->m_pp_thread;
+  pThread->m_running = FALSE;
+  g_mutex_lock(&pThread->m_mutex);
+  pThread->m_ready = TRUE;
+  g_cond_signal(&pThread->m_cond);
+  g_mutex_unlock(&pThread->m_mutex);
+
+  g_thread_join(pThread->m_thread);
+  pThread->m_thread = NULL;
+
+  // gfx 2d
   if (self->handle) {
     gfx_deinit(self->handle);
     self->handle = NULL;
@@ -450,19 +482,13 @@ static gboolean gst_aml_nn_close(GstBaseTransform *base) {
   return TRUE;
 }
 
-#define FREE_STRING(s)                                                         \
-  do {                                                                         \
-    if (s) {                                                                   \
-      g_free(s);                                                               \
-      s = NULL;                                                                \
-    }                                                                          \
-  } while (0)
 
 
 static void gst_aml_nn_finalize(GObject *object) {
-  GstAmlNN *self = GST_AMLNN(object);
   G_OBJECT_CLASS(parent_class)->finalize(object);
 }
+
+
 
 static gboolean gst_aml_nn_set_caps(GstBaseTransform *base, GstCaps *incaps,
                                     GstCaps *outcaps) {
@@ -479,42 +505,6 @@ static gboolean gst_aml_nn_set_caps(GstBaseTransform *base, GstCaps *incaps,
   return TRUE;
 }
 
-
-static void push_result(GstBaseTransform *base,
-                        NNResultBuffer *resbuf) {
-  GstMapInfo info;
-  GstAmlNN *self = GST_AMLNN(base);
-
-  if (resbuf == NULL || resbuf->amount <= 0) {
-    GST_INFO_OBJECT(self, "nn-result-clear");
-    GstStructure *st = gst_structure_new("nn-result-clear", NULL, NULL);
-    GstEvent *event = gst_event_new_custom(GST_EVENT_CUSTOM_DOWNSTREAM_OOB, st);
-    gst_element_send_event(&base->element, event);
-    return;
-  }
-
-  GST_INFO_OBJECT(self, "resbuf->amount=%d", resbuf->amount);
-
-  gint st_size = sizeof(NNResultBuffer);
-  gint res_size = resbuf->amount * sizeof(NNResult);
-
-  GstBuffer *gstbuf = gst_buffer_new_allocate(NULL, st_size + res_size, NULL);
-  if (gst_buffer_map(gstbuf, &info, GST_MAP_WRITE)) {
-    memcpy(info.data, resbuf, st_size);
-    memcpy(info.data + st_size, resbuf->results, res_size);
-    gst_buffer_unmap(gstbuf, &info);
-
-    GstStructure *st = gst_structure_new("nn-result", "result-buffer",
-                                         GST_TYPE_BUFFER, gstbuf, NULL);
-
-    GstEvent *event = gst_event_new_custom(GST_EVENT_CUSTOM_DOWNSTREAM_OOB, st);
-
-    GST_INFO_OBJECT(self, "gst_element_send_event to overlay");
-
-    gst_element_send_event(&base->element, event);
-  }
-  gst_buffer_unref(gstbuf);
-}
 
 
 static gboolean detection_init(GstAmlNN *self) {
@@ -556,11 +546,18 @@ static gboolean detection_init(GstAmlNN *self) {
 
 
 
-static gboolean detection_process(GstAmlNN *self,
-                                  NNResultBuffer *resbuf) {
+static gboolean detection_process(GstAmlNN *self) {
   gboolean ret = TRUE;
 
   GST_INFO_OBJECT(self, "Enter");
+
+  if (self->face_det.model == DET_BUTT) {
+    // face detection not enabled,
+    // ignore the request and exit
+    GST_DEBUG_OBJECT(self, "face detection model disabled");
+    // make sure the input memory would be released
+    return FALSE;
+  }
 
   struct timeval st;
   struct timeval ed;
@@ -599,23 +596,14 @@ static gboolean detection_process(GstAmlNN *self,
   im.width = self->face_det.width;
   im.height = self->face_det.height;
   im.channel = self->face_det.channel;
-  det_status_t rc = det_set_input(im, self->face_det.model);
+  GST_INFO_OBJECT(self, "det_trigger_inference for detection");
+  det_status_t rc = det_trigger_inference(im, self->face_det.model);
   gst_memory_unmap(self->face_det.nn_input[nn_idx].memory, &minfo);
 
   if (rc != DET_STATUS_OK) {
-    GST_ERROR_OBJECT(self, "failed to set input to detection model");
+    GST_ERROR_OBJECT(self, "failed to det_trigger_inference");
     return FALSE;
   }
-
-  GST_INFO_OBJECT(self, "waiting for detection result");
-
-#ifndef USE_FAKE_DETECT
-  DetectResult res;
-  res.result.det_result.detect_num = 0;
-  res.result.det_result.point = g_new(det_position_float_t, self->face_det.param.param.det_param.detect_num);
-  res.result.det_result.result_name = g_new(det_classify_result_t, self->face_det.param.param.det_param.detect_num);
-  det_get_result(&res, self->face_det.model);
-  GST_INFO_OBJECT(self, "detection result got, facenum: %d", res.result.det_result.detect_num);
 
   // NPU use nn_input buffer done, update new buffer index
   g_mutex_lock(&self->face_det.buffer_lock);
@@ -630,124 +618,168 @@ static gboolean detection_process(GstAmlNN *self,
   self->face_det.cur_nn_idx = -1;
   g_mutex_unlock(&self->face_det.buffer_lock);
 
-  resbuf->amount = res.result.det_result.detect_num;
-  resbuf->results = NULL;
-  if (res.result.det_result.detect_num > 0) {
-    resbuf->results = g_new(NNResult, res.result.det_result.detect_num);
-    for (gint i = 0; i < res.result.det_result.detect_num; i++) {
-      resbuf->results[i].pos.left = res.result.det_result.point[i].point.rectPoint.left/im.width;
-      resbuf->results[i].pos.top = res.result.det_result.point[i].point.rectPoint.top/im.height;
-      resbuf->results[i].pos.right = res.result.det_result.point[i].point.rectPoint.right/im.width;
-      resbuf->results[i].pos.bottom = res.result.det_result.point[i].point.rectPoint.bottom/im.height;
-      for (gint j = 0; j < 5; j++) {
-        resbuf->results[i].fpos[j].x = res.result.det_result.point[i].tpts.floatX[j]/im.width;
-        resbuf->results[i].fpos[j].y = res.result.det_result.point[i].tpts.floatY[j]/im.height;
-      }
-
-      GST_INFO_OBJECT(self, "detect, id=%d, label_name=%s", res.result.det_result.result_name->label_id, res.result.det_result.result_name->label_name);
-      // resbuf->results[i].label_name[0] = '\0';
-      resbuf->results[i].label_id = res.result.det_result.result_name->label_id;
-      snprintf(resbuf->results[i].label_name, MAX_NN_LABEL_LENGTH-1, "%s", res.result.det_result.result_name->label_name);
-    }
-  }
-
-  g_free(res.result.det_result.point);
-  g_free(res.result.det_result.result_name);
-
   gettimeofday(&ed, NULL);
   time_total = (ed.tv_sec - st.tv_sec)*1000000.0 + (ed.tv_usec - st.tv_usec);
+  GST_INFO_OBJECT(self, "Leave, det_trigger_inference done, time=%lf uS", time_total);
 
-  GST_INFO_OBJECT(self, "detect, time=%lf uS", time_total);
-
-#else
-
-  int x_rand;
-  int y_rand;
-  int w_rand;
-
-  DetectResult res;
-  res.result.det_result.detect_num = 200;
-  res.result.det_result.point = g_new(det_position_float_t, self->face_det.param.param.det_param.detect_num);
-  res.result.det_result.result_name = g_new(amlnn_processdet_classify_result_t, self->face_det.param.param.det_param.detect_num);
-  det_get_result(&res, self->face_det.model);
-  GST_INFO_OBJECT(self, "detection result got, facenum: %d, maxfacenum: %d",
-    res.result.det_result.detect_num, self->face_det.param.param.det_param.detect_num);
-
-  // fleet temp
-  resbuf->amount = res.result.det_result.detect_num;
-  resbuf->results = g_new(NNResult, resbuf->amount);
-
-  static struct timeval timePrev;
-  struct timeval timeCurrent;
-  double time_us;
-  gettimeofday(&timeCurrent, NULL);
-  time_us = (timeCurrent.tv_sec - timePrev.tv_sec)*1000000.0 + (timeCurrent.tv_usec - timePrev.tv_usec);
-  timePrev=timeCurrent;
-
-  unsigned seed = (unsigned)time_us;
-
-  for (gint i = 0; i < resbuf->amount; i++) {
-    srand((unsigned)seed+i);
-    x_rand = rand() % 1000;
-    y_rand = rand() % 1000;
-    w_rand = rand() % 100 + 50;
-
-    resbuf->results[i].pos.left = 0.001*x_rand;
-    resbuf->results[i].pos.top = 0.001*y_rand;
-    resbuf->results[i].pos.right = 0.001*w_rand+resbuf->results[i].pos.left;
-    resbuf->results[i].pos.bottom = 0.002*w_rand+resbuf->results[i].pos.top;
-    resbuf->results[i].info[0] = '\0';
-  }
-
-  GST_INFO_OBJECT(self, "fake detection result");
-
-#endif
-
-  GST_INFO_OBJECT(self, "Leave");
   return ret;
 }
 
 
 
 static gpointer amlnn_process(void *data) {
-  NNResultBuffer resbuf;
   GstAmlNN *self = (GstAmlNN *)data;
-  GstMemory *input_memory = NULL;
-  gboolean is_normal_process = TRUE;
 
-  GST_INFO_OBJECT(self, "Enter, m_running=%d, m_ready=%d", self->m_running, self->m_ready);
+  ThreadInfo *pThread = &self->m_nn_thread;
+  GST_INFO_OBJECT(self, "Enter, m_running=%d, m_ready=%d", pThread->m_running, pThread->m_ready);
 
-  while (self->m_running) {
-    g_mutex_lock(&self->m_mutex);
-    while (!self->m_ready) {
-      g_cond_wait(&self->m_cond, &self->m_mutex);
+  ThreadInfo *pPPThread = &self->m_pp_thread;
+  while (pThread->m_running) {
+    g_mutex_lock(&pThread->m_mutex);
+    while (!pThread->m_ready) {
+      g_cond_wait(&pThread->m_cond, &pThread->m_mutex);
     }
 
     GST_INFO_OBJECT(self, "wait m_cond done, model=%d", self->face_det.model);
 
-    if (!self->m_running) {
-      goto loop_continue;
+    if (!pThread->m_running) {
+      g_mutex_unlock(&pThread->m_mutex);
+      continue;
     }
 
-    self->m_ready = FALSE;
-    g_mutex_unlock(&self->m_mutex);
+    pThread->m_ready = FALSE;
+    g_mutex_unlock(&pThread->m_mutex);
 
-    if (self->face_det.model == DET_BUTT) {
-      // face detection not enabled,
-      // ignore the request and exit
-      GST_DEBUG_OBJECT(self, "face detection model disabled");
-      // make sure the input memory would be released
-      goto loop_continue;
+    detection_process(self);
+
+    // wake up pp thread to work
+    if (g_mutex_trylock(&pPPThread->m_mutex)) {
+      pPPThread->m_ready = TRUE;
+      g_cond_signal(&pPPThread->m_cond);
+      g_mutex_unlock(&pPPThread->m_mutex);
+    }
+  }
+
+  // exiting
+  close_model(&self->face_det);
+
+  return NULL;
+}
+
+
+
+static void push_result(GstBaseTransform *base,
+                        NNResultBuffer *resbuf) {
+  GstMapInfo info;
+  GstAmlNN *self = GST_AMLNN(base);
+
+  if (resbuf == NULL || resbuf->amount <= 0) {
+    GST_INFO_OBJECT(self, "nn-result-clear");
+    GstStructure *st = gst_structure_new("nn-result-clear", NULL, NULL);
+    GstEvent *event = gst_event_new_custom(GST_EVENT_CUSTOM_DOWNSTREAM_OOB, st);
+    gst_element_send_event(&base->element, event);
+    return;
+  }
+
+  GST_INFO_OBJECT(self, "resbuf->amount=%d", resbuf->amount);
+
+  gint st_size = sizeof(NNResultBuffer);
+  gint res_size = resbuf->amount * sizeof(NNResult);
+
+  GstBuffer *gstbuf = gst_buffer_new_allocate(NULL, st_size + res_size, NULL);
+  if (gst_buffer_map(gstbuf, &info, GST_MAP_WRITE)) {
+    memcpy(info.data, resbuf, st_size);
+    memcpy(info.data + st_size, resbuf->results, res_size);
+    gst_buffer_unmap(gstbuf, &info);
+
+    GstStructure *st = gst_structure_new("nn-result", "result-buffer",
+                                         GST_TYPE_BUFFER, gstbuf, NULL);
+
+    GstEvent *event = gst_event_new_custom(GST_EVENT_CUSTOM_DOWNSTREAM_OOB, st);
+
+    GST_INFO_OBJECT(self, "gst_element_send_event to overlay");
+
+    gst_element_send_event(&base->element, event);
+  }
+  gst_buffer_unref(gstbuf);
+}
+
+
+
+static gpointer amlnn_post_process(void *data) {
+  NNResultBuffer resbuf;
+  GstAmlNN *self = (GstAmlNN *)data;
+
+  ThreadInfo *pThread = &self->m_pp_thread;
+  GST_INFO_OBJECT(self, "Enter, m_running=%d, m_ready=%d", pThread->m_running, pThread->m_ready);
+
+  while (pThread->m_running) {
+    g_mutex_lock(&pThread->m_mutex);
+    while (!pThread->m_ready) {
+      g_cond_wait(&pThread->m_cond, &pThread->m_mutex);
     }
 
-    is_normal_process = TRUE;
-    GST_INFO_OBJECT(self, "is_normal_process=%d", is_normal_process);
+    if (!pThread->m_running) {
+      g_mutex_unlock(&pThread->m_mutex);
+      continue;
+    }
 
-    detection_process(self, &resbuf);
+    pThread->m_ready = FALSE;
+    g_mutex_unlock(&pThread->m_mutex);
 
-    if (is_normal_process && self->m_running) {
+    struct timeval st;
+    struct timeval ed;
+    double time_total;
+    gettimeofday(&st, NULL);
+
+    // get the detect result and do post process
+    DetectResult res;
+    res.result.det_result.detect_num = 0;
+    res.result.det_result.point = g_new(det_position_float_t, self->face_det.param.param.det_param.detect_num);
+    res.result.det_result.result_name = g_new(det_classify_result_t, self->face_det.param.param.det_param.detect_num);
+    det_get_inference_result(&res, self->face_det.model);
+    GST_INFO_OBJECT(self, "detection result got, facenum: %d", res.result.det_result.detect_num);
+
+    gint width  = self->face_det.width;
+    gint height = self->face_det.height;
+
+    resbuf.amount = res.result.det_result.detect_num;
+    resbuf.results = NULL;
+    if (res.result.det_result.detect_num > 0) {
+      resbuf.results = g_new(NNResult, res.result.det_result.detect_num);
+      for (gint i = 0; i < res.result.det_result.detect_num; i++) {
+        resbuf.results[i].pos.left = res.result.det_result.point[i].point.rectPoint.left/width;
+        resbuf.results[i].pos.top = res.result.det_result.point[i].point.rectPoint.top/height;
+        resbuf.results[i].pos.right = res.result.det_result.point[i].point.rectPoint.right/width;
+        resbuf.results[i].pos.bottom = res.result.det_result.point[i].point.rectPoint.bottom/height;
+        for (gint j = 0; j < 5; j++) {
+          resbuf.results[i].fpos[j].x = res.result.det_result.point[i].tpts.floatX[j]/width;
+          resbuf.results[i].fpos[j].y = res.result.det_result.point[i].tpts.floatY[j]/height;
+        }
+
+        GST_INFO_OBJECT(self, "detect, id=%d, label_name=%s", res.result.det_result.result_name->label_id, res.result.det_result.result_name->label_name);
+        // resbuf.results[i].label_name[0] = '\0';
+        resbuf.results[i].label_id = res.result.det_result.result_name->label_id;
+        snprintf(resbuf.results[i].label_name, MAX_NN_LABEL_LENGTH-1, "%s", res.result.det_result.result_name->label_name);
+      }
+    }
+
+    g_free(res.result.det_result.point);
+    g_free(res.result.det_result.result_name);
+
+    if (pThread->m_running) {
       push_result(&self->element, &resbuf);
     }
+
+    if (resbuf.amount > 0) {
+      g_free(resbuf.results);
+      resbuf.amount = 0;
+      resbuf.results = NULL;
+    }
+
+    gettimeofday(&ed, NULL);
+    time_total = (ed.tv_sec - st.tv_sec)*1000000.0 + (ed.tv_usec - st.tv_usec);
+    GST_INFO_OBJECT(self, "detect, time=%lf uS", time_total);
 
 #ifdef PRINT_FPS
     // calculate fps
@@ -777,31 +809,12 @@ static gpointer amlnn_process(void *data) {
     }
     frame_count++;
 #endif
-
-  loop_continue:
-    if (resbuf.amount > 0) {
-      g_free(resbuf.results);
-      resbuf.amount = 0;
-      resbuf.results = NULL;
-    }
-    if (input_memory) {
-      gst_memory_unref (input_memory);
-      input_memory = NULL;
-    }
-
-    // continue process buffer
-    // if (self->m_running) {
-    //   gst_base_transform_set_passthrough(GST_BASE_TRANSFORM(self), FALSE);
-    // }
-    // self->m_ready = FALSE;
-    // g_mutex_unlock(&self->m_mutex);
   }
-
-  // exiting
-  close_model(&self->face_det);
 
   return NULL;
 }
+
+
 
 /* this function does the actual processing
  */
@@ -819,6 +832,11 @@ static GstFlowReturn gst_aml_nn_transform_ip(GstBaseTransform *base,
     GST_ELEMENT_ERROR(base, CORE, NEGOTIATION, (NULL), ("unknown format"));
     return GST_FLOW_NOT_NEGOTIATED;
   }
+
+  struct timeval st;
+  struct timeval ed;
+  double time_total;
+  gettimeofday(&st, NULL);
 
   // init detect, open model, and prepare buffer, only once
   detection_init(self);
@@ -866,11 +884,6 @@ static GstFlowReturn gst_aml_nn_transform_ip(GstBaseTransform *base,
   if (self->dmabuf_alloc == NULL) {
     self->dmabuf_alloc = gst_amlion_allocator_obtain();
   }
-
-  struct timeval st;
-  struct timeval ed;
-  double time_total;
-  gettimeofday(&st, NULL);
 
   if (!is_dmabuf) {
     GstMapInfo minfo, bufinfo;
@@ -940,13 +953,14 @@ static GstFlowReturn gst_aml_nn_transform_ip(GstBaseTransform *base,
   time_total = (ed.tv_sec - st.tv_sec)*1000000.0 + (ed.tv_usec - st.tv_usec);
   GST_INFO_OBJECT(self, "gfx_stretchblit done, time=%lf uS", time_total);
 
-  if (g_mutex_trylock(&self->m_mutex)) {
+  ThreadInfo *pThread = &self->m_nn_thread;
+  if (g_mutex_trylock(&pThread->m_mutex)) {
     // skip the following transform
     // gst_base_transform_set_passthrough(base, TRUE);
 
-    self->m_ready = TRUE;
-    g_cond_signal(&self->m_cond);
-    g_mutex_unlock(&self->m_mutex);
+    pThread->m_ready = TRUE;
+    g_cond_signal(&pThread->m_cond);
+    g_mutex_unlock(&pThread->m_mutex);
   }
 
   ret = GST_FLOW_OK;

@@ -4,9 +4,9 @@ TARGET = libdetect-library.so
 
 all: $(TARGET)
 
-CXXFLAGS+=-std=c++14
+CXXFLAGS+=-std=c++14 -Wall -Wextra -fPIC -Os
 CFLAGS = -Wall -Wextra -fPIC -Os
-LDFLAGS +=  -L$(STAGING_DIR)/usr/lib/ -lstdc++ -lm -lpthread -lnnsdk
+LDFLAGS +=  -L$(STAGING_DIR)/usr/lib/ -Wall -Wextra -fPIC -Os -lstdc++ -lm -lpthread -lnnsdk
 
 LDFLAGS +=  -L/lib/lib64
 
@@ -30,6 +30,7 @@ clean:
 install:
 	cp inc/*.h $(STAGING_DIR)/usr/include/
 	cp $(TARGET) $(TARGET_DIR)/usr/lib/
+	rm $(TARGET)
 	cp lib/lib64/*.so $(TARGET_DIR)/usr/lib/
 	cp -rf nn_data/ $(TARGET_DIR)/etc/
 

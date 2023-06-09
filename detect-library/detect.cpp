@@ -10,11 +10,6 @@
 #include <unistd.h>
 using namespace std;
 
-static unsigned char temp[112*112*3];
-static unsigned char *inbuf_det = NULL;
-static unsigned char *inbuf_reg = NULL;
-static unsigned char *outbuf = NULL;
-
 #include "nn_sdk.h"
 #include "nn_demo.h"
 #include "nn_detect.h"
@@ -28,14 +23,12 @@ static unsigned char *outbuf = NULL;
 #include <sys/time.h>
 
 
-static struct timeval g_start = {0};
-static struct timeval g_end = {0};
-static double g_timecost = 0.0f;
+static struct timeval g_start;
 
 extern "C"
 
 typedef unsigned char   uint8_t;
-int g_detect_number = DETECT_NUM;
+unsigned int g_detect_number = DETECT_NUM;
 
 #define _SET_STATUS_(status, stat, lbl) do {\
     status = stat; \
@@ -384,7 +377,6 @@ det_status_t det_set_input(input_image_t imageData, det_model_type modelType)
     nn_input inData;
     int ret = DET_STATUS_OK;
     p_det_network_t net = &network[modelType];
-    int i,j,tmpdata,nn_width, nn_height, channels,offset;
 
     LOGP("Enter, modeltype:%d", modelType);
     if (!net->status) {
@@ -427,6 +419,14 @@ det_status_t det_set_input(input_image_t imageData, det_model_type modelType)
 
 exit:
     LOGP("Leave, modeltype:%d", modelType);
+
+    struct timeval end;
+    double time_total;
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
+    g_start = end;
+    printf("det_set_input, time=%lf uS \n", time_total);
+
     return ret;
 }
 
@@ -516,9 +516,8 @@ void post_process(det_model_type modelType,void* out,pDetResult resultData)
     face_landmark5_out_t           *face_detect_out            = NULL;
     yolov3_out_t                   *yolov3_out                 = NULL;
 
-    uint8_t *buffer = NULL;
     float left = 0, right = 0, top = 0, bot=0, prob = 0;
-    unsigned int i = 0, j = 0, input_width = 0, input_high = 0;
+    unsigned int i = 0, input_width = 0, input_high = 0;
 
     switch (modelType)
     {
@@ -613,36 +612,22 @@ void post_process(det_model_type modelType,void* out,pDetResult resultData)
         break;
     }
 
-    struct timeval end;
-    double time_total;
-    gettimeofday(&end, NULL);
-    time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
-    g_start = end;
-
-    // printf("Leave, post_process modelType:%d, time=%lf uS \n", modelType, time_total);
     return;
 }
 
-static void save_file_i8(int8_t *buffer, const char *file_path, unsigned int file_size)
-{
-    FILE *fp = NULL;
-    size_t count;
-
-    fp = fopen(file_path, "w");
-
-    int8_t *char_buffer = buffer;
-    for (int i = 0; i < file_size; i++)
-    {
-        fprintf(fp, "%d\n", char_buffer[i]);
-    }
-    fclose(fp);
-}
 
 det_status_t det_get_result(pDetResult resultData, det_model_type modelType)
 {
     aml_output_config_t outconfig;
     aml_module_t modelType_sdk;
     int ret = DET_STATUS_OK;
+
+    struct timeval end;
+    double time_total;
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
+    g_start = end;
+    printf("det_set_input-det_get_result, time=%lf uS \n", time_total);
 
     p_det_network_t net = &network[modelType];
     void *out;
@@ -668,35 +653,58 @@ det_status_t det_get_result(pDetResult resultData, det_model_type modelType)
         break;
     }
 
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
+    g_start = end;
+    printf("before AML_PERF_OUTPUT_SET, time=%lf uS \n", time_total);
+
     outconfig.perfMode = AML_PERF_OUTPUT_SET;
     nn_out = (nn_output*)net->process.module_output_get(net->context,outconfig);
+
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
+    g_start = end;
+    printf("AML_PERF_OUTPUT_SET, time=%lf uS \n", time_total);
 
     outconfig.perfMode = AML_PERF_INFERENCE;
     nn_out = (nn_output*)net->process.module_output_get(net->context,outconfig);
 
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
+    g_start = end;
+    printf("AML_PERF_INFERENCE, time=%lf uS \n", time_total);
+
     outconfig.perfMode = AML_PERF_OUTPUT_GET;
     nn_out = (nn_output*)net->process.module_output_get(net->context,outconfig);
 
-    out = (void*)net->process.post_process(modelType_sdk,nn_out);
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
+    g_start = end;
+    printf("AML_PERF_OUTPUT_GET, time=%lf uS \n", time_total);
+
+    out = (void*)net->process.post_process(modelType_sdk, nn_out);
 
     if (out == NULL) {
         LOGE("Process Net work fail");
         _SET_STATUS_(ret, DET_STATUS_PROCESS_NETWORK_FAIL, exit);
     }
 
-    struct timeval end;
-    double time_total;
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
     g_start = end;
-
-    // printf("module_output_get modelType:%d, time=%lf uS \n", modelType, time_total);
+    printf("net->process.post_process, time=%lf uS \n", time_total);
 
     post_process(modelType,out,resultData);
     net->status = NETWORK_PROCESSING;
 
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
+    g_start = end;
+    printf("post_process, time=%lf uS \n", time_total);
+
 exit:
     LOGP("Leave, modeltype:%d", modelType);
+
     return ret;
 }
 
@@ -738,4 +746,208 @@ det_status_t det_set_log_config(det_debug_level_t level,det_log_format_t output_
     LOGP("Leave, level:%d", level);
     return 0;
 }
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+// for async mode, better performance
+/////////////////////////////////////////////////////////////////////////////////////////////
+
+
+static det_status_t det_set_input_to_NPU(input_image_t imageData, det_model_type modelType)
+{
+    nn_input inData;
+    int ret = DET_STATUS_OK;
+    p_det_network_t net = &network[modelType];
+
+    LOGI("Enter, modeltype:%d", modelType);
+    ret = check_input_param(imageData, modelType);
+    if (ret) {
+        LOGE("Check_input_param fail.");
+        _SET_STATUS_(ret, DET_STATUS_PARAM_ERROR, exit);
+    }
+
+    // need check u8 or i8, prepare diff preprocess
+    switch (modelType)
+    {
+        case DET_YOLO_V3:
+            memcpy(net->memory_data.viraddr,imageData.data,net->mem_config.mem_size);
+            break;
+        case DET_AML_FACE_DETECTION:
+            memcpy(net->memory_data.viraddr,imageData.data,net->mem_config.mem_size);
+            break;
+        default:
+            break;
+    }
+    inData.input_type = INPUT_DMA_DATA;
+    inData.input_index = 0;
+    inData.size = net->mem_config.mem_size;
+    inData.input = (uint8_t*)net->memory_data.memory;
+    ret = net->process.module_input_set(net->context, &inData);
+
+    if (ret)
+    {
+        LOGE("Set input fail.");
+        _SET_STATUS_(ret, DET_STATUS_SET_INPUT_ERROR, exit);
+    }
+    net->status = NETWORK_PREPARING;
+
+exit:
+    LOGI("Leave, modeltype:%d", modelType);
+
+    return ret;
+}
+
+
+
+static det_status_t det_get_outconfig(det_model_type modelType, aml_output_config_t *pOutconfig)
+{
+    int ret = DET_STATUS_OK;
+
+    pOutconfig->typeSize = sizeof(aml_output_config_t);
+    switch (modelType)
+    {
+    case DET_YOLO_V3:
+        pOutconfig->format = AML_OUTDATA_FLOAT32;
+        pOutconfig->order = AML_OUTPUT_ORDER_NCHW;
+        break;
+    case DET_AML_FACE_DETECTION:
+        pOutconfig->format = AML_OUTDATA_FLOAT32;
+        break;
+    default:
+        break;
+    }
+
+    return ret;
+}
+
+
+
+static det_status_t det_set_output_to_NPU(det_model_type modelType, aml_output_config_t *pOutconfig)
+{
+    int ret = DET_STATUS_OK;
+    p_det_network_t net = &network[modelType];
+
+    LOGI("Enter, modeltype:%d", modelType);
+    if (NETWORK_PREPARING != net->status) {
+        LOGE("Model not create or not prepared! status=%d", net->status);
+        _SET_STATUS_(ret, DET_STATUS_ERROR, exit);
+    }
+
+    pOutconfig->perfMode = AML_PERF_OUTPUT_SET;
+    net->process.module_output_get(net->context, *pOutconfig);
+
+exit:
+    LOGI("Leave, modeltype:%d", modelType);
+    return ret;
+}
+
+
+
+// trigger NPU HW thread will call this function
+det_status_t det_trigger_inference(input_image_t imageData, det_model_type modelType)
+{
+    aml_output_config_t outconfig;
+    p_det_network_t net = &network[modelType];
+    int ret = DET_STATUS_OK;
+    nn_output *nn_out;
+
+    LOGI("Enter, modeltype:%d", modelType);
+
+    struct timeval start;
+    struct timeval end;
+    double time_total;
+    gettimeofday(&start, NULL);
+
+    /////////////////////////////////////////////////////////////////////////////////
+    // 1. set input
+    det_set_input_to_NPU(imageData, modelType);
+
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
+    start = end;
+    LOGI("det_set_input_to_NPU, time=%lf uS \n", time_total);
+
+    /////////////////////////////////////////////////////////////////////////////////
+    // get outconfig
+    det_get_outconfig(modelType, &outconfig);
+
+    // 2. set output
+    det_set_output_to_NPU(modelType, &outconfig);
+
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
+    start = end;
+    LOGI("det_set_output_to_NPU, time=%lf uS \n", time_total);
+
+    /////////////////////////////////////////////////////////////////////////////////
+    // set triggler inference
+    outconfig.perfMode = AML_PERF_INFERENCE;
+    nn_out = (nn_output*)net->process.module_output_get(net->context, outconfig);
+
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
+    start = end;
+    LOGI("AML_PERF_INFERENCE, time=%lf uS \n", time_total);
+
+    LOGI("Leave, modeltype:%d", modelType);
+    return ret;
+}
+
+
+// analysis output, and notify next pipe , result thread will call this function
+det_status_t det_get_inference_result(pDetResult resultData, det_model_type modelType)
+{
+    aml_output_config_t outconfig;
+    p_det_network_t net = &network[modelType];
+    int ret = DET_STATUS_OK;
+    nn_output *nn_out;
+
+    void *out;
+    LOGI("Enter, modeltype:%d", modelType);
+
+    struct timeval start;
+    struct timeval end;
+    double time_total;
+    gettimeofday(&start, NULL);
+
+    // get outconfig
+    det_get_outconfig(modelType, &outconfig);
+
+    outconfig.perfMode = AML_PERF_OUTPUT_GET;
+    nn_out = (nn_output*)net->process.module_output_get(net->context, outconfig);
+
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
+    start = end;
+    LOGI("AML_PERF_OUTPUT_GET, num=%d, out[0]=%d, out[1]=%d, out[2]=%d, time=%lf uS\n", nn_out->num, nn_out->out[0], nn_out->out[1], nn_out->out[2], time_total);
+
+    aml_module_t modelType_sdk;
+    modelType_sdk = get_sdk_modeltype(modelType);
+    out = (void*)net->process.post_process(modelType_sdk, nn_out);
+
+    if (out == NULL) {
+        LOGE("Process Net work fail");
+        _SET_STATUS_(ret, DET_STATUS_PROCESS_NETWORK_FAIL, exit);
+    }
+
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
+    start = end;
+    LOGI("net->process.post_process, time=%lf uS \n", time_total);
+
+    post_process(modelType, out, resultData);
+    net->status = NETWORK_PROCESSING;
+
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
+    start = end;
+    LOGI("post_process, time=%lf uS \n", time_total);
+
+exit:
+    LOGI("Leave, modeltype:%d", modelType);
+    return ret;
+}
+
+
+
 

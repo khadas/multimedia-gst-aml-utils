@@ -10,7 +10,7 @@ CFLAGS += \
 	-I inc/ \
 	-I$(STAGING_DIR)/usr/include/
 
-LDFLAGS = $(GST_PLUGIN_LDFLAGS) $(shell $(PKG_CONFIG) --libs gstreamer-1.0 gstreamer-base-1.0 gstreamer-allocators-1.0 gstreamer-video-1.0)
+LDFLAGS = $(GST_PLUGIN_LDFLAGS) $(shell $(PKG_CONFIG) --libs -Os gstreamer-1.0 gstreamer-base-1.0 gstreamer-allocators-1.0 gstreamer-video-1.0)
 LDFLAGS += -L$(STAGING_DIR)/usr/lib/ -lion
 
 
@@ -25,4 +25,5 @@ clean:
 install:
 	cp inc/*.h $(STAGING_DIR)/usr/include/
 	cp $(TARGET) $(TARGET_DIR)/usr/lib/
+	rm $(TARGET)
 

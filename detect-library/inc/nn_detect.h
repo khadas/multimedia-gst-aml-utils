@@ -16,6 +16,11 @@ det_status_t det_get_result(pDetResult resultData, det_model_type modelType);   
 det_status_t det_release_model(det_model_type modelType);       ///<get detection result,this will block until process end
 det_status_t det_set_log_config(det_debug_level_t level,det_log_format_t output_format);  ///<set log config
 
+// for async
+det_status_t det_trigger_inference(input_image_t imageData, det_model_type modelType);
+det_status_t det_get_inference_result(pDetResult resultData, det_model_type modelType);
+
+
 #ifdef __cplusplus
 }
 #endif

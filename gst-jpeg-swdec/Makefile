@@ -5,7 +5,7 @@ TARGET = libgst-jpeg-swdec.so
 all: $(TARGET)
 
 CFLAGS = -Wall -Wextra -fPIC -Os
-LDFLAGS = $(GST_PLUGIN_LDFLAGS) -lm -lpthread -ljpeg
+LDFLAGS = $(GST_PLUGIN_LDFLAGS) -Os -lm -lpthread -ljpeg
 
 CFLAGS += \
 	-I inc/ \
@@ -23,5 +23,6 @@ clean:
 install:
 	cp inc/*.h $(STAGING_DIR)/usr/include/
 	cp $(TARGET) $(TARGET_DIR)/usr/lib/
+	rm $(TARGET)
 
 

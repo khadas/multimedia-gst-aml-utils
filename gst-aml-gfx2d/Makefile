@@ -6,7 +6,7 @@ all: $(TARGET)
 
 CFLAGS = $(GST_CFLAGS) -Wall -Wextra -fPIC -Os
 CFLAGS += $(shell $(PKG_CONFIG) --cflags gstreamer-1.0 gstreamer-base-1.0 gstreamer-allocators-1.0 gstreamer-video-1.0)
-LDFLAGS += $(shell $(PKG_CONFIG) --libs gstreamer-1.0 gstreamer-base-1.0 gstreamer-allocators-1.0 gstreamer-video-1.0)
+LDFLAGS += $(shell $(PKG_CONFIG) --libs -Os gstreamer-1.0 gstreamer-base-1.0 gstreamer-allocators-1.0 gstreamer-video-1.0)
 
 LDFLAGS += -L$(STAGING_DIR)/usr/lib/ -lge2d
 CFLAGS += \
@@ -26,4 +26,5 @@ clean:
 install:
 	cp inc/*.h $(STAGING_DIR)/usr/include/
 	cp $(TARGET) $(TARGET_DIR)/usr/lib/
+	rm $(TARGET)
 

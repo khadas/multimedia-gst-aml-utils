@@ -48,7 +48,7 @@ typedef struct _GstAmlNN      GstAmlNN;
 typedef struct _GstAmlNNClass GstAmlNNClass;
 
 
-#define NN_BUF_CNT 2
+#define NN_BUF_CNT 3
 
 typedef struct _model_info {
   det_model_type model;
@@ -76,12 +76,24 @@ typedef struct _model_info {
 } ModelInfo;
 
 
+typedef struct _thread_info {
+  /// thread handle
+  GThread *m_thread;
+
+  // mutex for condition
+  GMutex m_mutex;
+  GCond m_cond;
+  gboolean m_ready;
+  gboolean m_running;
+
+} ThreadInfo;
+
+
 struct _GstAmlNN {
   GstBaseTransform element;
 
   /*< private >*/
   ModelInfo face_det;
-
   gint max_detect_num;
 
   GstAllocator *dmabuf_alloc;
@@ -89,12 +101,12 @@ struct _GstAmlNN {
   // gfx2d handle
   void *handle;
 
-  GThread *m_thread;
-  // mutex for condtition
-  GMutex m_mutex;
-  GCond m_cond;
-  gboolean m_ready;
-  gboolean m_running;
+
+  // nn thread
+  ThreadInfo m_nn_thread;
+
+  // postprocess thread
+  ThreadInfo m_pp_thread;
 
   GstVideoInfo info;
   gboolean is_info_set;

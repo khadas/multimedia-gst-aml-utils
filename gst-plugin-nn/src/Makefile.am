@@ -7,6 +7,7 @@ libgstamlnn_la_SOURCES = gstamlnn.c
 
 # compiler and linker flags used to compile this plugin, set in configure.ac
 libgstamlnn_la_CFLAGS = $(GST_CFLAGS) \
+			-Wall -Wextra -fPIC -Os \
 			-I$(STAGING_DIR)/usr/include/
 			$(SQLITE3_CFLAGS)
 
@@ -19,7 +20,7 @@ libgstamlnn_la_LIBADD = $(GST_LIBS) \
 			-lnnsdk \
 			-lnndemo
 
-libgstamlnn_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS) -Wl,--as-needed
+libgstamlnn_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS) -Wl,--as-needed -Os
 libgstamlnn_la_LIBTOOLFLAGS = --tag=disable-static
 
 # headers we need but don't want installed
