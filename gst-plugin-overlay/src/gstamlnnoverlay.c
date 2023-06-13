@@ -207,6 +207,7 @@ static void gst_aml_nn_overlay_init(GstAmlNNOverlay *self) {
   g_mutex_init(&self->m_mutex);
   self->m_ready = FALSE;
   self->m_running = TRUE;
+  self->m_face_absence_cnt = 0;
 
   base->graphic.render_idx = -1;
   base->graphic.cur_display_idx = -1;
@@ -422,6 +423,11 @@ static gboolean gst_aml_nn_overlay_event(GstBaseTransform *trans,
         self->nn.result.buf = NULL;
       }
       g_mutex_unlock(&self->nn.result.lock);
+
+      g_mutex_lock(&self->m_mutex);
+      self->m_ready = TRUE;
+      g_cond_signal(&self->m_cond);
+      g_mutex_unlock(&self->m_mutex);
     }
   } break;
   default:
@@ -499,7 +505,9 @@ static GstFlowReturn gst_aml_nn_overlay_transform_ip(GstBaseTransform *trans,
     GFX_Rect *pDirtyRect = &base->graphic.dirtyRect[display_idx];
 
     // if input buffer support Alpha, can blend directly
-    if (inBuf.format == GST_VIDEO_FORMAT_RGBA) {
+    if (1 == gfx_isEmptyArea(pDirtyRect)) {
+      // do nothing
+    }else if (inBuf.format == GST_VIDEO_FORMAT_RGBA) {
       gfx_blend(handle,
                 &inBuf, pDirtyRect,
                 &topBuf, pDirtyRect,
@@ -613,16 +621,29 @@ static gpointer overlay_process(void *data) {
       continue;
     }
 
-    if (!self->nn.result.buf) {
-      GST_INFO_OBJECT(self, "nn.result.buf is null");
-      g_mutex_unlock(&self->nn.result.lock);
-      continue;
-    }
+    int rect_count = 0;
+    NNRenderData *pNNData = NULL;
 
-    // GST_INFO_OBJECT(self, "result.buf=%p, amount=%d, srcid=%d",
-    //   self->nn.result.buf, self->nn.result.buf->amount, self->nn.result.srcid);
-    int rect_count = self->nn.result.buf->amount;
-    NNRenderData *pNNData = g_new0(NNRenderData, rect_count);
+    if (!self->nn.result.buf) {
+      if (self->m_face_absence_cnt<5) {
+        self->m_face_absence_cnt++;
+        // < 5 frame no face, ignore
+        GST_INFO_OBJECT(self, "nn.result.buf is null");
+        g_mutex_unlock(&self->nn.result.lock);
+        continue;
+      }else
+      {
+        self->m_face_absence_cnt = 0;
+        rect_count = 0;
+        // need clear surface
+      }
+    }else {  // have new face
+      self->m_face_absence_cnt = 0;
+      // GST_INFO_OBJECT(self, "result.buf=%p, amount=%d, srcid=%d",
+      //   self->nn.result.buf, self->nn.result.buf->amount, self->nn.result.srcid);
+      rect_count = self->nn.result.buf->amount;
+      pNNData = g_new0(NNRenderData, rect_count);
+    }
 
     for (gint i = 0; i<rect_count; i++) {
       NNResult *res = &self->nn.result.buf->results[i];
@@ -689,14 +710,15 @@ static gpointer overlay_process(void *data) {
 
     // // Fill the rectangle with transparent color in the graphic.temp.fd
     GFX_Rect *pDirtyRect = &base->graphic.dirtyRect[render_idx];
-    // //gfx_fillrect(handle, &topBuf, pDirtyRect, 0, 1);
-    gfx_fillrect_software(handle, &topBuf, minfo.data, pDirtyRect, 0x0);
 
-    // GFX_Rect rect = {0, 0, info->width, info->height};
-    // gfx_fillrect_software(handle, &topBuf, minfo.data, &rect, 0x0);
+    // if input buffer support Alpha, can blend directly
+    if (1 != gfx_isEmptyArea(pDirtyRect)) {
+      // //gfx_fillrect(handle, &topBuf, pDirtyRect, 0, 1);
+      gfx_fillrect_software(handle, &topBuf, minfo.data, pDirtyRect, 0x0);
 
-    // clean the new render buffer dirty area
-    memset(pDirtyRect, 0, sizeof(GFX_Rect));
+      // clean the new render buffer dirty area
+      memset(pDirtyRect, 0, sizeof(GFX_Rect));
+    }
 
     for (gint i = 0; i<rect_count; i++) {
       GFX_Rect small_rect = {pNNData[i].rect.x,

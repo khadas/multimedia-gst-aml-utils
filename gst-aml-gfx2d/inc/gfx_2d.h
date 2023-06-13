@@ -287,7 +287,7 @@ Description:    check dirty area, merge pNewRect to pBaseRect
 Input:
   pBuf : the input buffer
   pBaseRect : the dirty area in the input buffer
-  pNewRect : the new rect
+  pNewRect : the new rectangle
 Output:
   pBaseRect : the output rectangle
 Return:
@@ -297,6 +297,21 @@ Return:
 extern GFX_Return gfx_updateDirtyArea(GFX_Buf *pBuf,
                                       GFX_Rect *pBaseRect,
                                       GFX_Rect *pNewRect);
+
+
+
+/*************************************************
+Function:       gfx_isEmptyArea
+Description:    check the area, is empty or not
+Input:
+  pRect : the rectangle
+Output:
+  N/A
+Return:
+  1        is empty
+  0       is not empty
+*************************************************/
+extern int gfx_isEmptyArea(GFX_Rect *pRect);
 
 
 #endif /* _GFX_2D_HW_H */

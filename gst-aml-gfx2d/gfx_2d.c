@@ -548,3 +548,16 @@ GFX_Return gfx_updateDirtyArea(GFX_Buf *pBuf,
 }
 
 
+
+int gfx_isEmptyArea(GFX_Rect *pRect){
+  if (NULL == pRect) return 1;
+
+  // if rect is zero rectangle, use new rect instead
+  if (0 == pRect->x && 0 == pRect->y && 0 == pRect->w && 0 == pRect->h)
+  {
+    return 1;
+  }
+
+  return 0;
+}
+

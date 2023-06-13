@@ -90,6 +90,8 @@ struct _GstAmlNNOverlay {
   /*< private >*/
   gboolean m_running;
   gboolean m_ready;
+  // face continuous absence frame count
+  int m_face_absence_cnt;
 
   GMutex m_mutex;  // For condition
   GCond m_cond;

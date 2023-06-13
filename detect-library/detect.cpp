@@ -759,7 +759,7 @@ static det_status_t det_set_input_to_NPU(input_image_t imageData, det_model_type
     int ret = DET_STATUS_OK;
     p_det_network_t net = &network[modelType];
 
-    LOGI("Enter, modeltype:%d", modelType);
+    LOGP("Enter, modeltype:%d", modelType);
     ret = check_input_param(imageData, modelType);
     if (ret) {
         LOGE("Check_input_param fail.");
@@ -792,7 +792,7 @@ static det_status_t det_set_input_to_NPU(input_image_t imageData, det_model_type
     net->status = NETWORK_PREPARING;
 
 exit:
-    LOGI("Leave, modeltype:%d", modelType);
+    LOGP("Leave, modeltype:%d", modelType);
 
     return ret;
 }
@@ -827,7 +827,7 @@ static det_status_t det_set_output_to_NPU(det_model_type modelType, aml_output_c
     int ret = DET_STATUS_OK;
     p_det_network_t net = &network[modelType];
 
-    LOGI("Enter, modeltype:%d", modelType);
+    LOGP("Enter, modeltype:%d", modelType);
     if (NETWORK_PREPARING != net->status) {
         LOGE("Model not create or not prepared! status=%d", net->status);
         _SET_STATUS_(ret, DET_STATUS_ERROR, exit);
@@ -837,7 +837,7 @@ static det_status_t det_set_output_to_NPU(det_model_type modelType, aml_output_c
     net->process.module_output_get(net->context, *pOutconfig);
 
 exit:
-    LOGI("Leave, modeltype:%d", modelType);
+    LOGP("Leave, modeltype:%d", modelType);
     return ret;
 }
 
@@ -851,7 +851,7 @@ det_status_t det_trigger_inference(input_image_t imageData, det_model_type model
     int ret = DET_STATUS_OK;
     nn_output *nn_out;
 
-    LOGI("Enter, modeltype:%d", modelType);
+    LOGP("Enter, modeltype:%d, imageData.data=%p, imageData(w=%d, h=%d)", modelType, imageData.data, imageData.width, imageData.height);
 
     struct timeval start;
     struct timeval end;
@@ -889,7 +889,7 @@ det_status_t det_trigger_inference(input_image_t imageData, det_model_type model
     start = end;
     LOGI("AML_PERF_INFERENCE, time=%lf uS \n", time_total);
 
-    LOGI("Leave, modeltype:%d", modelType);
+    LOGP("Leave, modeltype:%d", modelType);
     return ret;
 }
 
@@ -903,7 +903,7 @@ det_status_t det_get_inference_result(pDetResult resultData, det_model_type mode
     nn_output *nn_out;
 
     void *out;
-    LOGI("Enter, modeltype:%d", modelType);
+    LOGP("Enter, modeltype:%d", modelType);
 
     struct timeval start;
     struct timeval end;
@@ -944,7 +944,7 @@ det_status_t det_get_inference_result(pDetResult resultData, det_model_type mode
     LOGI("post_process, time=%lf uS \n", time_total);
 
 exit:
-    LOGI("Leave, modeltype:%d", modelType);
+    LOGP("Leave, modeltype:%d", modelType);
     return ret;
 }
 
