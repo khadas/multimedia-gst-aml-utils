@@ -95,9 +95,9 @@ GFX_Return gfx_fillrect(GFX_Handle handle,
   gfx_info *info = (gfx_info *)handle;
   aml_ge2d_info_t *pge2dinfo = &info->ge2d.ge2dinfo;
 
-  GFX_INFO("Enter handle=%p pBuf(%d %d (%d %d)) pRect(%d %d %d %d) color=%x",
+  GFX_INFO("Enter handle=%p pBuf(fd:%d format:%d ion:%d size:(%d %d)) pRect(%d %d %d %d) color=%x",
     handle,
-    pBuf->fd, pBuf->is_ionbuf, pBuf->size.w, pBuf->size.h,
+    pBuf->fd, pBuf->format, pBuf->is_ionbuf, pBuf->size.w, pBuf->size.h,
     pRect->x, pRect->y, pRect->w, pRect->h, color);
 
   if (GFX_Ret_OK != gfx_check_buf_rect(pBuf, pRect))  {
@@ -114,7 +114,7 @@ GFX_Return gfx_fillrect(GFX_Handle handle,
 
   gfx_fill_params(pBuf, pRect, &pge2dinfo->dst_info);
   pge2dinfo->dst_info.layer_mode = LAYER_MODE_PREMULTIPLIED;
-  pge2dinfo->dst_info.plane_alpha = 0xff;
+  pge2dinfo->dst_info.plane_alpha = GFX_DEFAULT_ALPHA;
   pge2dinfo->dst_info.memtype = GE2D_CANVAS_ALLOC;
   pge2dinfo->dst_info.plane_number = 1;
 
@@ -146,9 +146,9 @@ GFX_Return gfx_drawrect(GFX_Handle handle,
   gfx_info *info = (gfx_info *)handle;
   aml_ge2d_info_t *pge2dinfo = &info->ge2d.ge2dinfo;
 
-  GFX_INFO("Enter handle=%p pBuf(%d %d (%d %d)) pRect(%d %d %d %d) color=%x thickness=%x",
+  GFX_INFO("Enter handle=%p pBuf(fd:%d format:%d ion:%d size:(%d %d)) pRect(%d %d %d %d) color=%x thickness=%x",
     handle,
-    pBuf->fd, pBuf->is_ionbuf, pBuf->size.w, pBuf->size.h,
+    pBuf->fd, pBuf->format, pBuf->is_ionbuf, pBuf->size.w, pBuf->size.h,
     pRect->x, pRect->y, pRect->w, pRect->h, color, thickness);
 
   if (GFX_Ret_OK != gfx_check_buf_rect(pBuf, pRect))
@@ -173,7 +173,7 @@ GFX_Return gfx_drawrect(GFX_Handle handle,
 
   gfx_fill_params(pBuf, pRect, &pge2dinfo->dst_info);
   pge2dinfo->dst_info.layer_mode = LAYER_MODE_PREMULTIPLIED;
-  pge2dinfo->dst_info.plane_alpha = 0xff;
+  pge2dinfo->dst_info.plane_alpha = GFX_DEFAULT_ALPHA;
   pge2dinfo->dst_info.memtype = GE2D_CANVAS_ALLOC;
   pge2dinfo->dst_info.plane_number = 1;
 
@@ -202,7 +202,7 @@ GFX_Return gfx_drawrect(GFX_Handle handle,
   // // do inner fillrect
   gfx_fill_params(pBuf, &inner_rect, &pge2dinfo->dst_info);
   pge2dinfo->dst_info.layer_mode = LAYER_MODE_PREMULTIPLIED;
-  pge2dinfo->dst_info.plane_alpha = 0xff;
+  pge2dinfo->dst_info.plane_alpha = GFX_DEFAULT_ALPHA;
   pge2dinfo->dst_info.memtype = GE2D_CANVAS_ALLOC;
   pge2dinfo->dst_info.plane_number = 1;
 
@@ -240,9 +240,9 @@ GFX_Return gfx_fillrect_software(GFX_Handle handle,
   if (NULL == pMemory) return GFX_Ret_Error;
   if (NULL == pRect) return GFX_Ret_Error;
 
-  GFX_INFO("handle=%p pBuf(%d %d (%d %d)) pMemory(%p) pRect(%d %d %d %d) color=%x",
+  GFX_INFO("handle=%p pBuf(fd:%d format:%d ion:%d size:(%d %d)) pMemory(%p) pRect(%d %d %d %d) color=%x",
     handle,
-    pBuf->fd, pBuf->is_ionbuf, pBuf->size.w, pBuf->size.h, pMemory,
+    pBuf->fd, pBuf->format, pBuf->is_ionbuf, pBuf->size.w, pBuf->size.h, pMemory,
     pRect->x, pRect->y, pRect->w, pRect->h, color);
 
   if (GFX_Ret_OK != gfx_check_buf_rect(pBuf, pRect))
@@ -285,9 +285,9 @@ GFX_Return gfx_drawrect_software(GFX_Handle handle,
   if (NULL == pMemory) return GFX_Ret_Error;
   if (NULL == pRect) return GFX_Ret_Error;
 
-  GFX_INFO("handle=%p pBuf(%d %d (%d %d)) pMemory(%p) pRect(%d %d %d %d) color=%x thickness=%d",
+  GFX_INFO("handle=%p pBuf(fd:%d format:%d ion:%d size:(%d %d)) pMemory(%p) pRect(%d %d %d %d) color=%x thickness=%d",
     handle,
-    pBuf->fd, pBuf->is_ionbuf, pBuf->size.w, pBuf->size.h, pMemory,
+    pBuf->fd, pBuf->format, pBuf->is_ionbuf, pBuf->size.w, pBuf->size.h, pMemory,
     pRect->x, pRect->y, pRect->w, pRect->h, color, thickness);
 
   if (GFX_Ret_OK != gfx_check_buf_rect(pBuf, pRect))
@@ -371,15 +371,15 @@ GFX_Return gfx_blend(GFX_Handle handle,
   aml_ge2d_info_t *pge2dinfo = &info->ge2d.ge2dinfo;
 
   GFX_INFO("Enter handle=%p "\
-    "pBottomBuf(%d %d (%d %d)) pBottomRect(%d %d %d %d) "\
-    "pTopBuf(%d %d (%d %d)) pTopRect(%d %d %d %d) "\
-    "pOutBuf(%d %d (%d %d)) pOutRect(%d %d %d %d) alpha=%d",
+    "pBottomBuf(fd:%d format:%d ion:%d size:(%d %d)) pBottomRect(%d %d %d %d) "\
+    "pTopBuf(fd:%d format:%d ion:%d size:(%d %d)) pTopRect(%d %d %d %d) "\
+    "pOutBuf(fd:%d format:%d ion:%d size:(%d %d)) pOutRect(%d %d %d %d) alpha=%d",
     handle,
-    pBottomBuf->fd, pBottomBuf->is_ionbuf, pBottomBuf->size.w, pBottomBuf->size.h,
+    pBottomBuf->fd, pBottomBuf->format, pBottomBuf->is_ionbuf, pBottomBuf->size.w, pBottomBuf->size.h,
     pBottomRect->x, pBottomRect->y, pBottomRect->w, pBottomRect->h,
-    pTopBuf->fd, pTopBuf->is_ionbuf, pTopBuf->size.w, pTopBuf->size.h,
+    pTopBuf->fd, pTopBuf->format, pTopBuf->is_ionbuf, pTopBuf->size.w, pTopBuf->size.h,
     pTopRect->x, pTopRect->y, pTopRect->w, pTopRect->h,
-    pOutBuf->fd, pOutBuf->is_ionbuf, pOutBuf->size.w, pOutBuf->size.h,
+    pOutBuf->fd, pOutBuf->format, pOutBuf->is_ionbuf, pOutBuf->size.w, pOutBuf->size.h,
     pOutRect->x, pOutRect->y, pOutRect->w, pOutRect->h, alpha);
 
   if (GFX_Ret_OK != gfx_check_buf_rect(pBottomBuf, pBottomRect))
@@ -447,12 +447,12 @@ GFX_Return gfx_stretchblit(GFX_Handle handle,
   aml_ge2d_info_t *pge2dinfo = &info->ge2d.ge2dinfo;
 
   GFX_INFO("Enter handle=%p "\
-    "pInBuf(%d %d (%d %d)) pInRect(%d %d %d %d) "\
-    "pOutBuf(%d %d (%d %d)) pOutRect(%d %d %d %d)",
+    "pInBuf(fd:%d format:%d ion:%d size:(%d %d)) pInRect(%d %d %d %d) "\
+    "pOutBuf(fd:%d format:%d ion:%d size:(%d %d)) pOutRect(%d %d %d %d)",
     handle,
-    pInBuf->fd, pInBuf->is_ionbuf, pInBuf->size.w, pInBuf->size.h,
+    pInBuf->fd, pInBuf->format, pInBuf->is_ionbuf, pInBuf->size.w, pInBuf->size.h,
     pInRect->x, pInRect->y, pInRect->w, pInRect->h,
-    pOutBuf->fd, pOutBuf->is_ionbuf, pOutBuf->size.w, pOutBuf->size.h,
+    pOutBuf->fd, pOutBuf->format, pOutBuf->is_ionbuf, pOutBuf->size.w, pOutBuf->size.h,
     pOutRect->x, pOutRect->y, pOutRect->w, pOutRect->h);
 
   if (GFX_Ret_OK != gfx_check_buf_rect(pInBuf, pInRect))
@@ -492,7 +492,7 @@ GFX_Return gfx_stretchblit(GFX_Handle handle,
   pge2dinfo->blend_mode = BLEND_MODE_PREMULTIPLIED;
 
   pge2dinfo->color = 0;
-  pge2dinfo->gl_alpha = 0;
+  pge2dinfo->gl_alpha = GFX_DEFAULT_ALPHA;
   pge2dinfo->const_color = 0;
 
   if (gfx_do_ge2d_cmd(pge2dinfo, sync) < 0) {

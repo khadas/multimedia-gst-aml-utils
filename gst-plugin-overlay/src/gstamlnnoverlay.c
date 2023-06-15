@@ -171,7 +171,7 @@ static void gst_aml_nn_overlay_class_init(GstAmlNNOverlayClass *klass) {
 
   gst_element_class_set_details_simple(
       gstelement_class, "Amlogic NN Overlay", "Filter/Editor/Video",
-      "Draw NN info on each frame", "Jemy Zhang <jun.zhang@amlogic.com>");
+      "Draw NN info on each frame", "Guoping Li <guoping.li@amlogic.com>");
 
   GST_BASE_TRANSFORM_CLASS(klass)->start =
       GST_DEBUG_FUNCPTR(gst_aml_nn_overlay_start);
@@ -507,19 +507,26 @@ static GstFlowReturn gst_aml_nn_overlay_transform_ip(GstBaseTransform *trans,
     // if input buffer support Alpha, can blend directly
     if (1 == gfx_isEmptyArea(pDirtyRect)) {
       // do nothing
-    }else if (inBuf.format == GST_VIDEO_FORMAT_RGBA) {
-      gfx_blend(handle,
-                &inBuf, pDirtyRect,
-                &topBuf, pDirtyRect,
-                &inBuf, pDirtyRect, 0xFF,
-                1);
+    // }else if (inBuf.format == gfx_convert_video_format(GST_VIDEO_FORMAT_RGBA)) {
+    //   gfx_blend(handle,
+    //             &inBuf, pDirtyRect,
+    //             &topBuf, pDirtyRect,
+    //             &inBuf, pDirtyRect, 200,
+    //             1);
+    //   // gfx_stretchblit(handle,
+    //   //           &topBuf, pDirtyRect,
+    //   //           &inBuf, pDirtyRect,
+    //   //           GFX_AML_ROTATION_0,
+    //   //           1);
     } else {
+      // blend to output buffer
       gfx_blend(handle,
                 &inBuf, pDirtyRect,
                 &topBuf, pDirtyRect,
-                &outBuf, pDirtyRect, 0xFF,
+                &outBuf, pDirtyRect, 250,
                 0);
 
+      // then blit to Camera in buffer
       gfx_stretchblit(handle,
                 &outBuf, pDirtyRect,
                 &inBuf, pDirtyRect,
@@ -613,7 +620,6 @@ static gpointer overlay_process(void *data) {
     g_mutex_unlock(&self->m_mutex);
 
     // main process
-
     g_mutex_lock(&self->nn.result.lock);
     if (!self->nn.enabled) {
       GST_INFO_OBJECT(self, "nn not enabled");
@@ -630,7 +636,7 @@ static gpointer overlay_process(void *data) {
         // < 5 frame no face, ignore
         GST_INFO_OBJECT(self, "nn.result.buf is null");
         g_mutex_unlock(&self->nn.result.lock);
-        continue;
+        goto loop_continue;
       }else
       {
         self->m_face_absence_cnt = 0;
@@ -714,7 +720,7 @@ static gpointer overlay_process(void *data) {
     // if input buffer support Alpha, can blend directly
     if (1 != gfx_isEmptyArea(pDirtyRect)) {
       // //gfx_fillrect(handle, &topBuf, pDirtyRect, 0, 1);
-      gfx_fillrect_software(handle, &topBuf, minfo.data, pDirtyRect, 0x0);
+      gfx_fillrect_software(handle, &topBuf, minfo.data, pDirtyRect, GFX_DEFAULT_ALPHA);
 
       // clean the new render buffer dirty area
       memset(pDirtyRect, 0, sizeof(GFX_Rect));

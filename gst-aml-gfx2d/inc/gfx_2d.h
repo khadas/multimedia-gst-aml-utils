@@ -81,6 +81,9 @@ typedef enum {
 } GfxAmlRotation;
 
 
+#define GFX_DEFAULT_ALPHA 0x0
+
+
 /*************************************************
 Function:       gfx_init
 Description:    init gfx 2d module, init ge2d engine

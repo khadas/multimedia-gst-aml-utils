@@ -32,7 +32,8 @@
  * <refsect2>
  * <title>Example launch line</title>
  * |[
- * gst-launch -v -m fakesrc ! amlnn ! fakesink silent=TRUE
+ * mipi camera in yocto:
+ * gst-launch-1.0 v4l2src device=/dev/media0 ! video/x-raw,width=1920,height=1080 ! amlnn ! amlnnoverlay ! glimagesink
  * ]|
  * </refsect2>
  */
@@ -65,7 +66,7 @@
 #ifdef PRINT_FPS
 #define PRINT_FPS_INTERVAL_S 120
 
-#define DET_LOG_LEVEL DET_DEBUG_LEVEL_WARN
+#define DET_LOG_LEVEL DET_DEBUG_LEVEL_PROCESS
 
 static int64_t get_current_time_msec(void) {
   struct timeval tv;
@@ -139,14 +140,17 @@ static GType gst_aml_face_det_model_get_type(void) {
 }
 
 
-/* the capabilities of the inputs and outputs.
- */
+// #define GST_VIDEO_FORMATS                                                      \
+//   "{"                                                                          \
+//   " RGBA, RGBx, RGB, "                                                          \
+//   " BGRA, BGR, "                                                                \
+//   " YV12, NV16, NV21, UYVY, NV12,"                                             \
+//   " I420"                                                                      \
+//   " } "
+
 #define GST_VIDEO_FORMATS                                                      \
   "{"                                                                          \
-  " RGBA, RGBx, RGB, "                                                          \
-  " BGRA, BGR, "                                                                \
-  " YV12, NV16, NV21, UYVY, NV12,"                                             \
-  " I420"                                                                      \
+  " BGR, RGB, YV12, NV12"                                                      \
   " } "
 
 static GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE(
@@ -217,7 +221,7 @@ static void gst_aml_nn_class_init(GstAmlNNClass *klass) {
 
   gst_element_class_set_details_simple(gstelement_class, "amlnn",
                                        "Generic/Filter", "Amlogic NN module",
-                                       "Jemy Zhang <jun.zhang@amlogic.com>");
+                                       "Guoping Li <guoping.li@amlogic.com>");
 
   gst_element_class_add_pad_template(
       gstelement_class, gst_static_pad_template_get(&src_template));

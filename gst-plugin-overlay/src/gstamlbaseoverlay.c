@@ -48,12 +48,17 @@ GST_DEBUG_CATEGORY_STATIC(gst_aml_base_overlay_debug);
 #define gst_aml_overlay_parent_class parent_class
 G_DEFINE_TYPE(GstAmlOverlay, gst_aml_overlay, GST_TYPE_BASE_TRANSFORM);
 
+// #define GST_VIDEO_FORMATS                                                      \
+//   "{"                                                                          \
+//   " RGBA, RGBx, RGB, "                                                          \
+//   " BGRA, BGR, "                                                                \
+//   " YV12, NV16, NV21, UYVY, NV12,"                                             \
+//   " I420"                                                                      \
+//   " } "
+
 #define GST_VIDEO_FORMATS                                                      \
   "{"                                                                          \
-  " RGBA, RGBx, RGB, "                                                          \
-  " BGRA, BGR, "                                                                \
-  " YV12, NV16, NV21, UYVY, NV12,"                                             \
-  " I420"                                                                      \
+  " BGR, RGB, YV12, NV12"                                                      \
   " } "
 
 static GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE(

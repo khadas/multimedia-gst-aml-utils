@@ -99,8 +99,8 @@ void gfx_clear_ge2d_info(aml_ge2d_info_t *pge2dinfo) {
 GFX_Return gfx_check_buf_rect(GFX_Buf *pBuf, GFX_Rect *pRect) {
   if (pRect->x >= pBuf->size.w || pRect->y >= pBuf->size.h)
   {
-    GFX_ERROR("invalid parameters,pBuf(%d %d (%d %d)) pRect(%d %d %d %d)",
-      pBuf->fd, pBuf->is_ionbuf, pBuf->size.w, pBuf->size.h,
+    GFX_ERROR("invalid parameters,pBuf(fd:%d format:%d ion:%d size:(%d %d)) pRect(%d %d %d %d)",
+      pBuf->fd, pBuf->format, pBuf->is_ionbuf, pBuf->size.w, pBuf->size.h,
       pRect->x, pRect->y, pRect->w, pRect->h);
     return GFX_Ret_Error;
   }
