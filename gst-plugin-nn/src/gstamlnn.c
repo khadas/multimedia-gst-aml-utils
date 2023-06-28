@@ -66,7 +66,7 @@
 #ifdef PRINT_FPS
 #define PRINT_FPS_INTERVAL_S 120
 
-#define DET_LOG_LEVEL DET_DEBUG_LEVEL_PROCESS
+#define DET_LOG_LEVEL DET_DEBUG_LEVEL_INFO
 
 static int64_t get_current_time_msec(void) {
   struct timeval tv;

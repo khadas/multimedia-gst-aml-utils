@@ -304,7 +304,7 @@ det_status_t det_set_model(det_model_type modelType)
     det_get_model_name(data_file_path,g_dev_type,modelType);
     size = get_input_size(modelType);
 
-    LOGE("module_create, model_path=%s",model_path);
+    LOGI("module_create, model_path=%s",model_path);
     config.path = (const char *)model_path;
     config.nbgType = NN_NBG_FILE;
     config.typeSize = sizeof(aml_config);
@@ -640,18 +640,7 @@ det_status_t det_get_result(pDetResult resultData, det_model_type modelType)
     outconfig.typeSize = sizeof(aml_output_config_t);
     modelType_sdk = get_sdk_modeltype(modelType);
 
-    switch (modelType)
-    {
-    case DET_YOLO_V3:
-        outconfig.format = AML_OUTDATA_FLOAT32;
-        outconfig.order = AML_OUTPUT_ORDER_NCHW;
-        break;
-    case DET_AML_FACE_DETECTION:
-        outconfig.format = AML_OUTDATA_FLOAT32;
-        break;
-    default:
-        break;
-    }
+    outconfig.format = AML_OUTDATA_DMA;
 
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
@@ -701,7 +690,6 @@ det_status_t det_get_result(pDetResult resultData, det_model_type modelType)
     time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
     g_start = end;
     printf("post_process, time=%lf uS \n", time_total);
-
 exit:
     LOGP("Leave, modeltype:%d", modelType);
 
@@ -730,8 +718,8 @@ det_status_t det_release_model(det_model_type modelType)
 
     dlclose(net->handle_id_user);
     net->handle_id_user = NULL;
-    dlclose(net->handle_id_demo);
-    net->handle_id_demo = NULL;
+    // dlclose(net->handle_id_demo);
+    // net->handle_id_demo = NULL;
     net->status = NETWORK_UNINIT;
 
 exit:
@@ -759,7 +747,7 @@ static det_status_t det_set_input_to_NPU(input_image_t imageData, det_model_type
     int ret = DET_STATUS_OK;
     p_det_network_t net = &network[modelType];
 
-    LOGP("Enter, modeltype:%d", modelType);
+    LOGI("Enter, modeltype:%d", modelType);
     ret = check_input_param(imageData, modelType);
     if (ret) {
         LOGE("Check_input_param fail.");
@@ -792,7 +780,7 @@ static det_status_t det_set_input_to_NPU(input_image_t imageData, det_model_type
     net->status = NETWORK_PREPARING;
 
 exit:
-    LOGP("Leave, modeltype:%d", modelType);
+    LOGI("Leave, modeltype:%d", modelType);
 
     return ret;
 }
@@ -802,20 +790,8 @@ exit:
 static det_status_t det_get_outconfig(det_model_type modelType, aml_output_config_t *pOutconfig)
 {
     int ret = DET_STATUS_OK;
-
     pOutconfig->typeSize = sizeof(aml_output_config_t);
-    switch (modelType)
-    {
-    case DET_YOLO_V3:
-        pOutconfig->format = AML_OUTDATA_FLOAT32;
-        pOutconfig->order = AML_OUTPUT_ORDER_NCHW;
-        break;
-    case DET_AML_FACE_DETECTION:
-        pOutconfig->format = AML_OUTDATA_FLOAT32;
-        break;
-    default:
-        break;
-    }
+    pOutconfig->format = AML_OUTDATA_DMA;
 
     return ret;
 }
@@ -827,7 +803,7 @@ static det_status_t det_set_output_to_NPU(det_model_type modelType, aml_output_c
     int ret = DET_STATUS_OK;
     p_det_network_t net = &network[modelType];
 
-    LOGP("Enter, modeltype:%d", modelType);
+    LOGI("Enter, modeltype:%d", modelType);
     if (NETWORK_PREPARING != net->status) {
         LOGE("Model not create or not prepared! status=%d", net->status);
         _SET_STATUS_(ret, DET_STATUS_ERROR, exit);
@@ -837,7 +813,7 @@ static det_status_t det_set_output_to_NPU(det_model_type modelType, aml_output_c
     net->process.module_output_get(net->context, *pOutconfig);
 
 exit:
-    LOGP("Leave, modeltype:%d", modelType);
+    LOGI("Leave, modeltype:%d", modelType);
     return ret;
 }
 
@@ -849,9 +825,8 @@ det_status_t det_trigger_inference(input_image_t imageData, det_model_type model
     aml_output_config_t outconfig;
     p_det_network_t net = &network[modelType];
     int ret = DET_STATUS_OK;
-    nn_output *nn_out;
 
-    LOGP("Enter, modeltype:%d, imageData.data=%p, imageData(w=%d, h=%d)", modelType, imageData.data, imageData.width, imageData.height);
+    LOGI("Enter, modeltype:%d", modelType);
 
     struct timeval start;
     struct timeval end;
@@ -882,14 +857,14 @@ det_status_t det_trigger_inference(input_image_t imageData, det_model_type model
     /////////////////////////////////////////////////////////////////////////////////
     // set triggler inference
     outconfig.perfMode = AML_PERF_INFERENCE;
-    nn_out = (nn_output*)net->process.module_output_get(net->context, outconfig);
+    net->process.module_output_get(net->context, outconfig);
 
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
     start = end;
     LOGI("AML_PERF_INFERENCE, time=%lf uS \n", time_total);
 
-    LOGP("Leave, modeltype:%d", modelType);
+    LOGI("Leave, modeltype:%d", modelType);
     return ret;
 }
 
@@ -903,7 +878,7 @@ det_status_t det_get_inference_result(pDetResult resultData, det_model_type mode
     nn_output *nn_out;
 
     void *out;
-    LOGP("Enter, modeltype:%d", modelType);
+    LOGI("Enter, modeltype:%d", modelType);
 
     struct timeval start;
     struct timeval end;
@@ -913,13 +888,14 @@ det_status_t det_get_inference_result(pDetResult resultData, det_model_type mode
     // get outconfig
     det_get_outconfig(modelType, &outconfig);
 
+
     outconfig.perfMode = AML_PERF_OUTPUT_GET;
     nn_out = (nn_output*)net->process.module_output_get(net->context, outconfig);
 
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
     start = end;
-    LOGI("AML_PERF_OUTPUT_GET, num=%d, out[0]=%d, out[1]=%d, out[2]=%d, time=%lf uS\n", nn_out->num, nn_out->out[0], nn_out->out[1], nn_out->out[2], time_total);
+    LOGI("AML_PERF_OUTPUT_GET, num=%d, out[0]=%d, out[1]=%d, out[2]=%d, time=%lf uS\n", nn_out->num, nn_out->out[0].size, nn_out->out[1].size, nn_out->out[2].size, time_total);
 
     aml_module_t modelType_sdk;
     modelType_sdk = get_sdk_modeltype(modelType);
@@ -942,9 +918,8 @@ det_status_t det_get_inference_result(pDetResult resultData, det_model_type mode
     time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
     start = end;
     LOGI("post_process, time=%lf uS \n", time_total);
-
 exit:
-    LOGP("Leave, modeltype:%d", modelType);
+    LOGI("Leave, modeltype:%d", modelType);
     return ret;
 }
 
