@@ -43,14 +43,14 @@
 #endif
 
 #include <gmodule.h>
-#include <gst/allocators/gstamlionallocator.h>
-#include <gst/allocators/gstdmabuf.h>
 #include <gst/base/base.h>
 #include <gst/controller/controller.h>
 #include <gst/gst.h>
 #include <gst/video/video.h>
 
 #include "gstamlnn.h"
+#include <gst/allocators/gstdmabuf.h>
+#include <gst/allocators/gstamldmaallocator.h>
 
 #include "gfx_2d.h"
 #include "gst_ge2d.h"
@@ -245,28 +245,29 @@ static void gst_aml_nn_class_init(GstAmlNNClass *klass) {
 /* initialize the new element
  * initialize instance structure
  */
-static void gst_aml_nn_init(GstAmlNN *nn) {
-  nn->is_info_set = FALSE;
+static void gst_aml_nn_init(GstAmlNN *self) {
+  self->is_info_set = FALSE;
 
-  memset(&nn->face_det, 0, sizeof(ModelInfo));
-  nn->face_det.model = DEFAULT_PROP_FACE_DET_MODEL;
-  nn->max_detect_num = DEFAULT_PROP_MAX_DET_NUM;
+  memset(&self->face_det, 0, sizeof(ModelInfo));
+  self->face_det.model = DEFAULT_PROP_FACE_DET_MODEL;
+  self->max_detect_num = DEFAULT_PROP_MAX_DET_NUM;
 
-  nn->handle = NULL;
+  self->m_gfxhandle = NULL;
+  self->dmabuf_alloc = NULL;
 
-  g_mutex_init(&nn->face_det.buffer_lock);
-  nn->face_det.prepare_idx = -1;
-  nn->face_det.cur_nn_idx = -1;
-  nn->face_det.next_nn_idx = -1;
+  g_mutex_init(&self->face_det.buffer_lock);
+  self->face_det.prepare_idx = -1;
+  self->face_det.cur_nn_idx = -1;
+  self->face_det.next_nn_idx = -1;
 
   // nn main thread
-  ThreadInfo *pThread = &nn->m_nn_thread;
+  ThreadInfo *pThread = &self->m_nn_thread;
   g_cond_init(&pThread->m_cond);
   g_mutex_init(&pThread->m_mutex);
   pThread->m_ready = FALSE;
 
   // nn post process thread
-  pThread = &nn->m_pp_thread;
+  pThread = &self->m_pp_thread;
   g_cond_init(&pThread->m_cond);
   g_mutex_init(&pThread->m_mutex);
   pThread->m_ready = FALSE;
@@ -274,11 +275,6 @@ static void gst_aml_nn_init(GstAmlNN *nn) {
   // set debug log level
   // det_set_log_config(DET_DEBUG_LEVEL_WARN, DET_LOG_TERMINAL);
   det_set_log_config(DET_LOG_LEVEL, DET_LOG_TERMINAL);
-
-  // init DMA
-  if (nn->dmabuf_alloc == NULL) {
-    nn->dmabuf_alloc = gst_amlion_allocator_obtain();
-  }
 }
 
 static gboolean open_model(ModelInfo *m) {
@@ -301,7 +297,6 @@ static gboolean open_model(ModelInfo *m) {
     det_release_model(m->model);
     return FALSE;
   }
-
 
   m->rowbytes = m->width * m->channel;
   m->stride = (m->rowbytes + 31) & ~31;
@@ -432,8 +427,8 @@ static gboolean gst_aml_nn_open(GstBaseTransform *base) {
 
   det_set_log_config(DET_LOG_LEVEL, DET_LOG_TERMINAL);
 
-  self->handle = gfx_init();
-  if (self->handle == NULL) {
+  self->m_gfxhandle = gfx_init();
+  if (self->m_gfxhandle == NULL) {
     GST_ERROR_OBJECT(self, "failed to initialize gfx2d");
     return FALSE;
   }
@@ -476,9 +471,9 @@ static gboolean gst_aml_nn_close(GstBaseTransform *base) {
   pThread->m_thread = NULL;
 
   // gfx 2d
-  if (self->handle) {
-    gfx_deinit(self->handle);
-    self->handle = NULL;
+  if (self->m_gfxhandle) {
+    gfx_deinit(self->m_gfxhandle);
+    self->m_gfxhandle = NULL;
   }
 
   GST_DEBUG_OBJECT(self, "closed");
@@ -529,9 +524,10 @@ static gboolean detection_init(GstAmlNN *self) {
   for (int i=0; i<NN_BUF_CNT; i++) {
     if (self->face_det.nn_input[i].memory == NULL) {
 
+      gint size = self->face_det.stride * self->face_det.height;
       self->face_det.nn_input[i].memory = gst_allocator_alloc(
           self->dmabuf_alloc,
-          self->face_det.stride * self->face_det.height, NULL);
+          size, NULL);
       if (NULL == self->face_det.nn_input[i].memory) {
         GST_ERROR_OBJECT(self, "failed to allocate the nn_input dma buffer, %p, %d",
           self->dmabuf_alloc, self->face_det.stride * self->face_det.height);
@@ -539,9 +535,10 @@ static gboolean detection_init(GstAmlNN *self) {
       }
 
       self->face_det.nn_input[i].fd = gst_dmabuf_memory_get_fd(self->face_det.nn_input[i].memory);
+      self->face_det.nn_input[i].size = size;
 
-      GST_INFO_OBJECT(self, "[%d]dmabuf_alloc=%p, stride=%d, height=%d, memory=%p", i,
-          self->dmabuf_alloc, self->face_det.stride, self->face_det.height, self->face_det.nn_input[i].memory);
+      GST_INFO_OBJECT(self, "[%d]dmabuf_alloc=%p, stride=%d, height=%d, memory=%p, fd=%d", i,
+          self->dmabuf_alloc, self->face_det.stride, self->face_det.height, self->face_det.nn_input[i].memory, self->face_det.nn_input[i].fd);
     }
   }
 
@@ -574,11 +571,15 @@ static gboolean detection_process(GstAmlNN *self) {
   self->face_det.cur_nn_idx = nn_idx;
   g_mutex_unlock(&self->face_det.buffer_lock);
 
-  GstMapInfo minfo;
-  if (!gst_memory_map(self->face_det.nn_input[nn_idx].memory, &minfo, GST_MAP_READWRITE)) {
-    GST_ERROR_OBJECT(self, "failed to map output detection buffer");
+  GST_INFO_OBJECT(self, "start detect, nn_idx=%d, memory=%p", nn_idx, self->face_det.nn_input[nn_idx].memory);
+
+  GstMapInfo mapinfo;
+  if (!gst_memory_map(self->face_det.nn_input[nn_idx].memory, &mapinfo, GST_MAP_READWRITE)) {
+    GST_ERROR_OBJECT(self, "failed to map memory(%p)", self->face_det.nn_input[nn_idx].memory);
     return FALSE;
   }
+  unsigned char *pData = mapinfo.data;
+  // unsigned char *pData = gst_amldmabuf_mmap(self->face_det.nn_input[nn_idx].memory);
 
   GST_INFO_OBJECT(self, "nn_idx=%d, rowbytes=%d, stride=%d",
     nn_idx, self->face_det.rowbytes, self->face_det.stride);
@@ -587,22 +588,25 @@ static gboolean detection_process(GstAmlNN *self) {
     gint rowbytes = self->face_det.rowbytes;
     gint stride = self->face_det.stride;
     for (int i = 0; i < self->face_det.height; i++) {
-      memcpy(&minfo.data[rowbytes * i], &minfo.data[stride * i], rowbytes);
+      memcpy(&pData[rowbytes * i], &pData[stride * i], rowbytes);
     }
   }
 
-  GST_INFO_OBJECT(self, "minfo.data=%p, width=%d, height=%d, channel=%d",
-    minfo.data, self->face_det.width, self->face_det.height, self->face_det.channel);
+  GST_INFO_OBJECT(self, "pData=%p, width=%d, height=%d, channel=%d",
+    pData, self->face_det.width, self->face_det.height, self->face_det.channel);
 
   input_image_t im;
-  im.data = minfo.data;
+  im.data = pData;
   im.pixel_format = PIX_FMT_RGB888;
   im.width = self->face_det.width;
   im.height = self->face_det.height;
   im.channel = self->face_det.channel;
   GST_INFO_OBJECT(self, "det_trigger_inference for detection");
   det_status_t rc = det_trigger_inference(im, self->face_det.model);
-  gst_memory_unmap(self->face_det.nn_input[nn_idx].memory, &minfo);
+  gst_memory_unmap(self->face_det.nn_input[nn_idx].memory, &mapinfo);
+  // if (pData) gst_amldmabuf_munmap(pData, self->face_det.nn_input[nn_idx].memory);
+
+  GST_INFO_OBJECT(self, "detect done, nn_idx=%d", nn_idx);
 
   if (rc != DET_STATUS_OK) {
     GST_ERROR_OBJECT(self, "failed to det_trigger_inference");
@@ -842,6 +846,12 @@ static GstFlowReturn gst_aml_nn_transform_ip(GstBaseTransform *base,
   double time_total;
   gettimeofday(&st, NULL);
 
+  if (self->dmabuf_alloc == NULL) {
+    self->dmabuf_alloc = gst_amldma_allocator_obtain("heap-gfx");
+    if (self->dmabuf_alloc == NULL)
+      return FALSE;
+  }
+
   // init detect, open model, and prepare buffer, only once
   detection_init(self);
 
@@ -883,17 +893,23 @@ static GstFlowReturn gst_aml_nn_transform_ip(GstBaseTransform *base,
   GST_INFO_OBJECT(self, "start prepare buffer, prepare_idx=%d next_nn_idx=%d", prepare_idx, next_nn_idx);
 
   GstMemory *input_memory = gst_buffer_get_memory(outbuf, 0);
-  gboolean is_dmabuf = gst_is_dmabuf_memory(input_memory);
-
-  if (self->dmabuf_alloc == NULL) {
-    self->dmabuf_alloc = gst_amlion_allocator_obtain();
+  if (input_memory == NULL) {
+    GST_ERROR_OBJECT(self, "input buffer not valid");
+    goto transform_end;
   }
 
+  GFX_Buf inBuf;
+  inBuf.format = gfx_convert_video_format(GST_VIDEO_INFO_FORMAT(&self->info));
+  inBuf.size.w = self->info.width;
+  inBuf.size.h = self->info.height;
+  inBuf.plane_number = 1;
+
+  gboolean is_dmabuf = gst_is_dmabuf_memory(input_memory);
+
   if (!is_dmabuf) {
-    GstMapInfo minfo, bufinfo;
+    GST_INFO_OBJECT(self, "input is not dma buffer");
 
-    gst_memory_unref(input_memory);
-
+    GstMapInfo bufinfo;
     GST_INFO_OBJECT(self, "allocate memory, info.size %ld", self->info.size);
 
     input_memory = gst_allocator_alloc(self->dmabuf_alloc, self->info.size, NULL);
@@ -901,18 +917,33 @@ static GstFlowReturn gst_aml_nn_transform_ip(GstBaseTransform *base,
       GST_ERROR_OBJECT(self, "failed to allocate new dma buffer");
       goto transform_end;
     }
-    if (!gst_memory_map(input_memory, &minfo, GST_MAP_WRITE)) {
-      GST_ERROR_OBJECT(self, "failed to map new dma buffer");
+
+    GstMapInfo mapinfo;
+    if (!gst_memory_map(input_memory, &mapinfo, GST_MAP_READWRITE)) {
+      GST_ERROR_OBJECT(self, "failed to map memory(%p)", input_memory);
       goto transform_end;
     }
+    unsigned char *pData = mapinfo.data;
+    // unsigned char *pData = gst_amldmabuf_mmap(input_memory);
+
     if (!gst_buffer_map(outbuf, &bufinfo, GST_MAP_READ)) {
-      gst_memory_unmap(input_memory, &minfo);
+      gst_memory_unmap(input_memory, &mapinfo);
+      // if (pData) gst_amldmabuf_munmap(pData, input_memory);
       GST_ERROR_OBJECT(self, "failed to map input buffer");
       goto transform_end;
     }
-    memcpy(minfo.data, bufinfo.data, self->info.size);
+    memcpy(pData, bufinfo.data, self->info.size);
     gst_buffer_unmap(outbuf, &bufinfo);
-    gst_memory_unmap(input_memory, &minfo);
+
+    gst_memory_unmap(input_memory, &mapinfo);
+    // if (pData) gst_amldmabuf_munmap(pData, input_memory);
+
+    inBuf.fd[0] = gst_dmabuf_memory_get_fd(input_memory);
+  }
+  else
+  {
+    GST_INFO_OBJECT(self, "input is dma buffer");
+    inBuf.fd[0] = gst_dmabuf_memory_get_fd(input_memory);
   }
 
   if (input_memory == NULL) {
@@ -920,29 +951,23 @@ static GstFlowReturn gst_aml_nn_transform_ip(GstBaseTransform *base,
     goto transform_end;
   }
 
-  GFX_Buf inBuf;
-  inBuf.fd = gst_dmabuf_memory_get_fd(input_memory);
-  inBuf.format = gfx_convert_video_format(GST_VIDEO_INFO_FORMAT(&self->info));
-  inBuf.is_ionbuf = gst_is_amlionbuf_memory(input_memory);
-  inBuf.size.w = self->info.width;
-  inBuf.size.h = self->info.height;
 
   GstMemory *nn_memory = self->face_det.nn_input[prepare_idx].memory;
 
   GFX_Buf outBuf;
-  outBuf.fd = self->face_det.nn_input[prepare_idx].fd;
+  outBuf.fd[0] = self->face_det.nn_input[prepare_idx].fd;
   outBuf.format = gfx_convert_video_format(NN_INPUT_BUF_FORMAT);
-  outBuf.is_ionbuf = gst_is_amlionbuf_memory(nn_memory);
   outBuf.size.w = self->face_det.width;
   outBuf.size.h = self->face_det.height;
+  outBuf.plane_number = 1;
 
-  GST_INFO_OBJECT(self, "prepare detect memory=%p, fd=%d", nn_memory, outBuf.fd);
+  GST_INFO_OBJECT(self, "prepare detect prepare_idx=%d, fd=%d", prepare_idx, outBuf.fd[0]);
 
   GFX_Rect inRect = {0, 0, self->info.width, self->info.height};
   GFX_Rect outRect = {0, 0, self->face_det.width, self->face_det.height};
 
   // Convert source buffer to detect buffer
-  gfx_stretchblit(self->handle,
+  gfx_stretchblit(self->m_gfxhandle,
                 &inBuf, &inRect,
                 &outBuf, &outRect,
                 GFX_AML_ROTATION_0,
@@ -1000,8 +1025,10 @@ static GstFlowReturn gst_aml_nn_transform_ip(GstBaseTransform *base,
 
 transform_end:
 
-  if (input_memory != NULL) {
+  if (NULL != input_memory)
+  {
     gst_memory_unref(input_memory);
+    input_memory = NULL;
   }
 
   GST_INFO_OBJECT(self, "Leave, signal done");

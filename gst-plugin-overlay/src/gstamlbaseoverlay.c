@@ -28,8 +28,8 @@
 #include "config.h"
 #endif
 
-#include <gst/allocators/gstamlionallocator.h>
 #include <gst/allocators/gstdmabuf.h>
+#include <gst/allocators/gstamldmaallocator.h>
 #include <gst/base/base.h>
 #include <gst/controller/controller.h>
 #include <gst/gst.h>
@@ -37,6 +37,8 @@
 
 #include "gfx_2d.h"
 #include "gstamlbaseoverlay.h"
+
+#include "dma_allocator.h"
 
 // 1088 is 32 alignment
 #define OVERLAY_TEMP_BUF_MAX_SIZE (1920 * 1088 * 4)
@@ -208,11 +210,14 @@ static void gst_aml_overlay_init(GstAmlOverlay *self) {
   GST_INFO_OBJECT(self, "Enter");
   self->is_info_set = FALSE;
   self->graphic.size = 0;
-  self->graphic.input.memory = NULL;
-  self->graphic.output.memory = NULL;
+
+  self->dmabuf_alloc = NULL;
+  self->graphic.m_gfxhandle = NULL;
+  self->graphic.m_input.memory = NULL;
+  self->graphic.m_output.memory = NULL;
 
   for (int i=0; i<RENDER_BUF_CNT; i++) {
-    self->graphic.render[i].memory = NULL;
+    self->graphic.m_render[i].memory = NULL;
   }
 
   g_mutex_init(&self->graphic.surface_lock);
@@ -224,12 +229,9 @@ static gboolean gst_aml_overlay_start(GstBaseTransform *trans) {
 
   GST_INFO_OBJECT(self, "Enter");
 
-  self->dmabuf_alloc = gst_amlion_allocator_obtain();
-  if (self->dmabuf_alloc == NULL)
-    return FALSE;
-
-  self->graphic.handle = gfx_init();
-  if (self->graphic.handle == NULL) {
+  // init 2d gfx engine
+  self->graphic.m_gfxhandle = gfx_init();
+  if (self->graphic.m_gfxhandle == NULL) {
     GST_ERROR_OBJECT(self, "failed to initialize gfx2d");
     return FALSE;
   }
@@ -243,21 +245,21 @@ static gboolean gst_aml_overlay_stop(GstBaseTransform *trans) {
 
   self->graphic.size = 0;
 
-  if (self->graphic.output.memory) {
-    gst_memory_unref(self->graphic.output.memory);
-    self->graphic.output.memory = NULL;
+  if (self->graphic.m_output.memory) {
+    gst_memory_unref(self->graphic.m_output.memory);
+    self->graphic.m_output.memory = NULL;
   }
 
   for (int i=0; i<RENDER_BUF_CNT; i++) {
-    if (self->graphic.render[i].memory) {
-      gst_memory_unref(self->graphic.render[i].memory);
-      self->graphic.render[i].memory = NULL;
+    if (self->graphic.m_render[i].memory) {
+      gst_memory_unref(self->graphic.m_render[i].memory);
+      self->graphic.m_render[i].memory = NULL;
     }
   }
 
-  if (self->graphic.input.memory) {
-    gst_memory_unref(self->graphic.input.memory);
-    self->graphic.input.memory = NULL;
+  if (self->graphic.m_input.memory) {
+    gst_memory_unref(self->graphic.m_input.memory);
+    self->graphic.m_input.memory = NULL;
   }
 
   if (self->dmabuf_alloc) {
@@ -265,44 +267,58 @@ static gboolean gst_aml_overlay_stop(GstBaseTransform *trans) {
     self->dmabuf_alloc = NULL;
   }
 
-  if (self->graphic.handle) {
-    gfx_deinit(self->graphic.handle);
-    self->graphic.handle = NULL;
+  if (self->graphic.m_gfxhandle) {
+    gfx_deinit(self->graphic.m_gfxhandle);
+    self->graphic.m_gfxhandle = NULL;
   }
 
   return TRUE;
 }
 
+// 0, no check, >0, check memory overwrite (e.g. 100)
+#define CHECK_MEM_OVERWRITE  0
+
+
 static void gst_aml_memory_overwrite_set_magic(GstBaseTransform *trans, GstMemory *memory, int size) {
   GstAmlOverlay *self = GST_AMLOVERLAY(trans);
-  GstMapInfo mapinfo;
+  if (CHECK_MEM_OVERWRITE <=0 ) return;
   GST_INFO_OBJECT(self, "Enter");
+
+  GstMapInfo mapinfo;
   if (!gst_memory_map(memory, &mapinfo, GST_MAP_READWRITE)) {
-    GST_ERROR_OBJECT(trans, "failed to map memory(%p)", memory);
+    GST_ERROR_OBJECT(self, "failed to map memory(%p)", memory);
     return;
   }
-  memset(mapinfo.data+size, 0x4D, CHECK_MEM_OVERWRITE);
+  unsigned char *pData = mapinfo.data;
+  // unsigned char *pData = gst_amldmabuf_mmap(memory);
+  if (CHECK_MEM_OVERWRITE>0) {
+    memset(pData+size, 0x4D, CHECK_MEM_OVERWRITE);
+  }
   gst_memory_unmap(memory, &mapinfo);
+  // if (pData) gst_amldmabuf_munmap(pData, memory);
   GST_INFO_OBJECT(self, "Leave");
 }
 
 
 static void gst_aml_memory_overwrite_check_magic(GstBaseTransform *trans, GstMemory *memory, int size) {
   GstAmlOverlay *self = GST_AMLOVERLAY(trans);
+  if (CHECK_MEM_OVERWRITE <=0 ) return;
+  GST_INFO_OBJECT(self, "Enter");
+
   GstMapInfo mapinfo;
-
-  if (CHECK_MEM_OVERWRITE <=1) return;
-
   if (!gst_memory_map(memory, &mapinfo, GST_MAP_READWRITE)) {
     GST_ERROR_OBJECT(self, "failed to map memory(%p)", memory);
     return;
   }
 
-  if (mapinfo.data[size+CHECK_MEM_OVERWRITE-1] != 0x4D)
-  {
-    GST_ERROR_OBJECT(self, "memory overflow, data=%x", mapinfo.data[size+CHECK_MEM_OVERWRITE-1]);
+  unsigned char *pData = mapinfo.data;
+  // unsigned char *pData = gst_amldmabuf_mmap(memory);
+  if (pData[size+CHECK_MEM_OVERWRITE-1] != 0x4D) {
+    GST_ERROR_OBJECT(self, "memory overflow, data=%x", pData[size+CHECK_MEM_OVERWRITE-1]);
   }
   gst_memory_unmap(memory, &mapinfo);
+  // if (pData) gst_amldmabuf_munmap(pData, memory);
+  GST_INFO_OBJECT(self, "Leave");
 }
 
 
@@ -314,55 +330,64 @@ static void gst_aml_overlay_before_transform(GstBaseTransform *trans,
   if (gst_base_transform_is_passthrough(trans))
     return;
 
-  GstMemory *memory = gst_buffer_get_memory(outbuf, 0);
-  gboolean is_dma_buffer = gst_is_dmabuf_memory(memory);
-
-  if (is_dma_buffer) {
-    GST_INFO_OBJECT(self, "is dma buffer");
-    self->graphic.input.fd = gst_dmabuf_memory_get_fd(memory);
-    if (gst_is_amlionbuf_memory(memory)) {
-      self->inputbuf_type = AMLOVERLAY_IONBUF;
-    } else {
-      self->inputbuf_type = AMLOVERLAY_DMABUF;
-    }
-    self->graphic.input.memory = memory;
-  } else {
-    GST_INFO_OBJECT(self, "not dma buffer");
-    self->inputbuf_type = AMLOVERLAY_USRBUF;
+  if (self->dmabuf_alloc == NULL) {
+    self->dmabuf_alloc = gst_amldma_allocator_obtain("heap-gfx");
+    if (self->dmabuf_alloc == NULL)
+      return;
   }
-  gst_memory_unref(memory);
+
+  GstMemory *input_memory = gst_buffer_get_memory(outbuf, 0);
+  gboolean is_dmabuf = gst_is_dmabuf_memory(input_memory);
 
   // for first in, need create overlay_process
   int FirstIn=0;
 
-  if (!is_dma_buffer) {
-    GstMapInfo minfo, bufinfo;
+  if (is_dmabuf) {
+    GST_INFO_OBJECT(self, "input is dma buffer");
+    self->graphic.m_input.fd = gst_dmabuf_memory_get_fd(input_memory);
+    self->inputbuf_type = AMLOVERLAY_DMABUF;
+    self->graphic.m_input.memory = input_memory;
+  } else {
+    GST_INFO_OBJECT(self, "input is not dma buffer, allocate DMA memory, info.size %ld", self->info.size);
+    self->inputbuf_type = AMLOVERLAY_USRBUF;
+  }
+  gst_memory_unref(input_memory);
+
+
+  if (!is_dmabuf) {
+    GstMapInfo bufinfo;
 
     // create new dma memory reference
-    if (self->graphic.input.memory == NULL) {
-      self->graphic.input.memory =
+    if (self->graphic.m_input.memory == NULL) {
+      self->graphic.m_input.memory =
           gst_allocator_alloc(self->dmabuf_alloc, self->info.size+CHECK_MEM_OVERWRITE, NULL);
-      if (self->graphic.input.memory == NULL) {
+      if (self->graphic.m_input.memory == NULL) {
         GST_ERROR_OBJECT(self, "failed to allocate input buffer, size=%ld", self->info.size);
         return;
       }
-      self->graphic.input.fd =
-          gst_dmabuf_memory_get_fd(self->graphic.input.memory);
+      self->graphic.m_input.fd =
+          gst_dmabuf_memory_get_fd(self->graphic.m_input.memory);
+      self->graphic.m_input.size = self->info.size;
 
-      GST_INFO_OBJECT(self, "new allocated dma buffer, input.memory=%p, input.fd=%d, info.size=%ld",
-        self->graphic.input.memory, self->graphic.input.fd, self->info.size);
+      GST_INFO_OBJECT(self, "new allocated dma buffer, m_input.memory=%p, m_input.fd=%d, info.size=%ld",
+        self->graphic.m_input.memory, self->graphic.m_input.fd, self->info.size);
 
       // set magic for check memory overwrite
-      gst_aml_memory_overwrite_set_magic(trans, self->graphic.input.memory, self->info.size);
+      gst_aml_memory_overwrite_set_magic(trans, self->graphic.m_input.memory, self->info.size);
     }
 
-    if (!gst_memory_map(self->graphic.input.memory, &minfo, GST_MAP_WRITE)) {
-      GST_ERROR_OBJECT(self, "failed to map new dma buffer");
+    GstMapInfo mapinfo;
+    if (!gst_memory_map(self->graphic.m_input.memory, &mapinfo, GST_MAP_READWRITE)) {
+      GST_ERROR_OBJECT(self, "failed to map memory(%p)", self->graphic.m_input.memory);
       return;
     }
+    unsigned char *pData = mapinfo.data;
+    // unsigned char *pData = gst_amldmabuf_mmap(self->graphic.m_input.memory);
+
     if (!gst_buffer_map(outbuf, &bufinfo, GST_MAP_READ)) {
       GST_ERROR_OBJECT(self, "failed to map input buffer");
-      gst_memory_unmap(self->graphic.input.memory, &minfo);
+      gst_memory_unmap(self->graphic.m_input.memory, &mapinfo);
+      // if (pData) gst_amldmabuf_munmap(pData, self->graphic.m_input.memory);
       return;
     }
 
@@ -371,16 +396,21 @@ static void gst_aml_overlay_before_transform(GstBaseTransform *trans,
     double time_total;
     gettimeofday(&st, NULL);
 
-    memcpy(minfo.data, bufinfo.data, self->info.size);
+    memcpy(pData, bufinfo.data, self->info.size);
 
     gettimeofday(&ed, NULL);
     time_total = (ed.tv_sec - st.tv_sec)*1000000.0 + (ed.tv_usec - st.tv_usec);
 
-    GST_INFO_OBJECT(self, "copy to DMA buf done, minfo.data=%p, bufinfo.data=%p, bufinfo.size=%ld, time=%lf uS",
-      minfo.data, bufinfo.data, bufinfo.size, time_total);
+    GST_INFO_OBJECT(self, "copy to DMA buf done, pData=%p, bufinfo.data=%p, bufinfo.size=%ld, time=%lf uS",
+      pData, bufinfo.data, bufinfo.size, time_total);
 
     gst_buffer_unmap(outbuf, &bufinfo);
-    gst_memory_unmap(self->graphic.input.memory, &minfo);
+    gst_memory_unmap(self->graphic.m_input.memory, &mapinfo);
+    // if (pData) gst_amldmabuf_munmap(pData, self->graphic.m_input.memory);
+
+    if (CHECK_MEM_OVERWRITE>0) {
+      gst_aml_memory_overwrite_check_magic(trans, self->graphic.m_input.memory, self->graphic.m_input.size);
+    }
   }
 
   // assume PIXEL_FORMAT_BGRA_8888
@@ -393,43 +423,45 @@ static void gst_aml_overlay_before_transform(GstBaseTransform *trans,
     return;
   }
 
-  // allocate buffers, graphic.output.fd
-  if (self->graphic.output.memory == NULL) {
-    self->graphic.output.memory =
-        gst_allocator_alloc(self->dmabuf_alloc, size+100, NULL);
-    if (self->graphic.output.memory == NULL) {
+  // allocate m_output DMA buffers
+  if (self->graphic.m_output.memory == NULL) {
+    self->graphic.m_output.memory =
+        gst_allocator_alloc(self->dmabuf_alloc, size+CHECK_MEM_OVERWRITE, NULL);
+    if (self->graphic.m_output.memory == NULL) {
       GST_ERROR_OBJECT(self, "failed to allocate output buffer");
       return;
     }
-    self->graphic.output.fd =
-        gst_dmabuf_memory_get_fd(self->graphic.output.memory);
+    self->graphic.m_output.fd =
+        gst_dmabuf_memory_get_fd(self->graphic.m_output.memory);
+    self->graphic.m_output.size = size;
 
     // fleet temp for check overwrite
-    gst_aml_memory_overwrite_set_magic(trans, self->graphic.output.memory, size);
+    gst_aml_memory_overwrite_set_magic(trans, self->graphic.m_output.memory, size);
 
-    GST_INFO_OBJECT(self, "output.memory=%p, output.fd=%d size=%d", self->graphic.output.memory, self->graphic.output.fd, size);
+    GST_INFO_OBJECT(self, "m_output.memory=%p, m_output.fd=%d size=%d", self->graphic.m_output.memory, self->graphic.m_output.fd, size);
 
-      // fleet temp
-      FirstIn = 1;
+    // first time, need start processor
+    FirstIn = 1;
   }
 
-  // allocate buffers, graphic.render[i].fd
+  // allocate m_render DMA buffers
   for (int i=0; i<RENDER_BUF_CNT; i++) {
-    if (NULL == self->graphic.render[i].memory) {
-      self->graphic.render[i].memory =
-          gst_allocator_alloc(self->dmabuf_alloc, size+100, NULL);
-      if (self->graphic.render[i].memory == NULL) {
+    if (NULL == self->graphic.m_render[i].memory) {
+      self->graphic.m_render[i].memory =
+          gst_allocator_alloc(self->dmabuf_alloc, size+CHECK_MEM_OVERWRITE, NULL);
+      if (self->graphic.m_render[i].memory == NULL) {
         GST_ERROR_OBJECT(self, "failed to allocate render[%d] buffer, size=%d", i, size);
         return;
       }
-      self->graphic.render[i].fd =
-          gst_dmabuf_memory_get_fd(self->graphic.render[i].memory);
+      self->graphic.m_render[i].fd =
+          gst_dmabuf_memory_get_fd(self->graphic.m_render[i].memory);
+      self->graphic.m_render[i].size = size;
 
       // fleet temp for check overwrite
-      gst_aml_memory_overwrite_set_magic(trans, self->graphic.render[i].memory, size);
+      gst_aml_memory_overwrite_set_magic(trans, self->graphic.m_render[i].memory, size);
 
-      GST_INFO_OBJECT(self, "[%d]render.memory=%p, render.fd=%d size=%d",
-        i, self->graphic.render[i].memory, self->graphic.render[i].fd, size);
+      GST_INFO_OBJECT(self, "[%d]m_render.memory=%p, m_render.fd=%d size=%d",
+        i, self->graphic.m_render[i].memory, self->graphic.m_render[i].fd, size);
     }
   }
 
@@ -438,16 +470,14 @@ static void gst_aml_overlay_before_transform(GstBaseTransform *trans,
     self->m_thread = g_thread_new("overlay process", self->process, self);
   }
 
-  // fleet temp for checking memory overwrite
-  // if (!is_dma_buffer) {
-  //   gst_aml_memory_overwrite_check_magic(trans, self->graphic.input.memory, self->info.size);
-  // }
-  // gst_aml_memory_overwrite_check_magic(trans, self->graphic.output.memory, size);
-  // for (int i=0; i<RENDER_BUF_CNT; i++) {
-  //   gst_aml_memory_overwrite_check_magic(trans, self->graphic.render[i].memory, size);
-  // }
+  if (CHECK_MEM_OVERWRITE>0) {
+    // fleet temp for checking memory overwrite
+    gst_aml_memory_overwrite_check_magic(trans, self->graphic.m_output.memory, self->graphic.m_output.size);
+    for (int i=0; i<RENDER_BUF_CNT; i++) {
+      gst_aml_memory_overwrite_check_magic(trans, self->graphic.m_render[i].memory, self->graphic.m_render[i].size);
+    }
+  }
 }
-
 
 
 
@@ -460,7 +490,7 @@ static GstFlowReturn gst_aml_overlay_transform_ip(GstBaseTransform *trans,
 
 
   if (self->inputbuf_type == AMLOVERLAY_USRBUF &&
-      self->graphic.input.memory != NULL) {
+      self->graphic.m_input.memory != NULL) {
     struct timeval st;
     struct timeval ed;
     double time_total;
@@ -468,21 +498,27 @@ static GstFlowReturn gst_aml_overlay_transform_ip(GstBaseTransform *trans,
 
     // not dma buffer
     // buffer write back
-    GstMapInfo minfo, bufinfo;
-
-    if (!gst_memory_map(self->graphic.input.memory, &minfo, GST_MAP_READ)) {
-      GST_ERROR_OBJECT(self, "failed to map new dma buffer");
+    GstMapInfo mapinfo;
+    if (!gst_memory_map(self->graphic.m_input.memory, &mapinfo, GST_MAP_READWRITE)) {
+      GST_ERROR_OBJECT(self, "failed to map memory(%p)", self->graphic.m_input.memory);
       return GST_FLOW_ERROR;
     }
+    unsigned char *pData = mapinfo.data;
+    // unsigned char *pData = gst_amldmabuf_mmap(self->graphic.m_input.memory);
+
+    GstMapInfo bufinfo;
     if (!gst_buffer_map(outbuf, &bufinfo, GST_MAP_WRITE)) {
       GST_ERROR_OBJECT(self, "failed to map input buffer");
-      gst_memory_unmap(self->graphic.input.memory, &minfo);
+      gst_memory_unmap(self->graphic.m_input.memory, &mapinfo);
+      // if (pData) gst_amldmabuf_munmap(pData, self->graphic.m_input.memory);
       return GST_FLOW_ERROR;
     }
 
-    memcpy(bufinfo.data, minfo.data, bufinfo.size);
+    memcpy(bufinfo.data, pData, bufinfo.size);
     gst_buffer_unmap(outbuf, &bufinfo);
-    gst_memory_unmap(self->graphic.input.memory, &minfo);
+
+    gst_memory_unmap(self->graphic.m_input.memory, &mapinfo);
+    // if (pData) gst_amldmabuf_munmap(pData, self->graphic.m_input.memory);
 
     gettimeofday(&ed, NULL);
     time_total = (ed.tv_sec - st.tv_sec)*1000000.0 + (ed.tv_usec - st.tv_usec);

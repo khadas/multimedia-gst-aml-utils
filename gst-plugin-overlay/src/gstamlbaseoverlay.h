@@ -64,6 +64,16 @@ typedef struct _GstAmlOverlayClass GstAmlOverlayClass;
 
 #define GST_TYPE_AMLOVERLAY_POS (gst_aml_overlay_pos_get_type())
 
+
+
+
+#define DEFAULT_PROP_FONTCOLOR 0x00ffffff
+
+#define DEFAULT_PROP_RECTCOLOR 0xff0000ff
+#define TEMP_SURFACE_COLOR_FORMAT GST_VIDEO_FORMAT_RGBA
+
+
+
 typedef enum {
   GST_AMLOVERLAY_POS_TOP_LEFT,
   GST_AMLOVERLAY_POS_TOP_MID,
@@ -98,7 +108,6 @@ struct aml_overlay_surface {
 
 typedef enum BufferType {
   AMLOVERLAY_DMABUF = 0,
-  AMLOVERLAY_IONBUF = 1,
   AMLOVERLAY_USRBUF = 0xff,
 }AmlOverlayBufType;
 
@@ -106,8 +115,6 @@ typedef enum BufferType {
 
 #define RENDER_BUF_CNT 2
 
-// 0, no check, >0, check memory overwrite
-#define CHECK_MEM_OVERWRITE 100
 
 typedef gpointer (*work_process)(void *data);
 
@@ -126,7 +133,8 @@ struct _GstAmlOverlay {
     struct {
       GstMemory *memory;
       gint fd;
-    } input, render[RENDER_BUF_CNT], output;
+      gint size;
+    } m_input, m_render[RENDER_BUF_CNT], m_output;
 
     // The dirtyRect of render buffer
     GFX_Rect dirtyRect[RENDER_BUF_CNT];
@@ -140,7 +148,7 @@ struct _GstAmlOverlay {
     int next_display_idx;
 
     // gfx2d handle
-    void *handle;
+    void *m_gfxhandle;
     gint width;
     gint height;
     gint size;

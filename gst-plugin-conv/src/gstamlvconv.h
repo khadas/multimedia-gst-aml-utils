@@ -30,7 +30,9 @@
 #include <gst/gst.h>
 #include <gst/video/video.h>
 #include <gst/video/gstvideofilter.h>
-#include <aml_ge2d.h>
+
+#include "gfx_2d.h"
+#include "gst_ge2d.h"
 
 G_BEGIN_DECLS
 
@@ -45,10 +47,12 @@ G_BEGIN_DECLS
   GType gst_aml_##module##_rotation_get_type(void) {                           \
     static GType aml_##module##_rotation_type = 0;                             \
     static const GEnumValue aml_##module##_rotation[] = {                      \
-        {GST_AML_ROTATION_0, "0", "rotate 0 degrees"},                         \
-        {GST_AML_ROTATION_90, "90", "rotate 90 degrees"},                      \
-        {GST_AML_ROTATION_180, "180", "rotate 180 degrees"},                   \
-        {GST_AML_ROTATION_270, "270", "rotate 270 degrees"},                   \
+        {GFX_AML_ROTATION_0, "0", "rotate 0 degrees"},                         \
+        {GFX_AML_ROTATION_90, "90", "rotate 90 degrees"},                      \
+        {GFX_AML_ROTATION_180, "180", "rotate 180 degrees"},                   \
+        {GFX_AML_ROTATION_270, "270", "rotate 270 degrees"},                   \
+        {GFX_AML_MIRROR_X, "0", "X mirror"},                                   \
+        {GFX_AML_MIRROR_Y, "0", "Y mirror"},                                   \
         {0, NULL, NULL},                                                       \
     };                                                                         \
     if (!aml_##module##_rotation_type) {                                       \
@@ -76,13 +80,18 @@ typedef struct _GstAmlVConvClass GstAmlVConvClass;
 
 struct _GstAmlVConv {
   GstVideoFilter element;
-
   /*< private >*/
-  struct imgproc_info {
-    void *handle;
-    // GstAmlRotation rotation;
-    gint rotation;
-  } imgproc;
+  struct {
+    struct {
+      GstMemory *memory;
+      gint fd;
+      gint size;
+    } m_input;
+
+    // gfx2d handle
+    void *m_gfxhandle;
+    GfxAmlRotation m_rotation;
+  } graphic;
 
   GstAllocator *dmabuf_alloc;
 

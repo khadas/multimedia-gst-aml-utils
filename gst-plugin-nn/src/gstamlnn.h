@@ -63,6 +63,7 @@ typedef struct _model_info {
   struct {
     GstMemory *memory;
     gint fd;
+    gint size;
   } nn_input[NN_BUF_CNT];
   // GstMemory *outmem;
 
@@ -99,8 +100,7 @@ struct _GstAmlNN {
   GstAllocator *dmabuf_alloc;
 
   // gfx2d handle
-  void *handle;
-
+  void *m_gfxhandle;
 
   // nn thread
   ThreadInfo m_nn_thread;

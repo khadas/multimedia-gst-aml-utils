@@ -47,13 +47,10 @@
 #include <gst/video/video.h>
 #include <gst/controller/controller.h>
 #include <gst/allocators/gstdmabuf.h>
-#include <gst/allocators/gstamlionallocator.h>
+#include <gst/allocators/gstamldmaallocator.h>
 
 #include "gstamlvconv.h"
 
-#include "imgproc.h"
-// #include "gfx_2d.h"
-// #include "gst_ge2d.h"
 
 
 #define GST_TYPE_AMLVCONV_ROTATION (GST_TYPE_AML_ROTATION(vconv))
@@ -70,7 +67,7 @@ enum
   PROP_ROTATION,
 };
 
-#define DEFAULT_PROP_ROTATION GST_AML_ROTATION_0
+
 
 /* the capabilities of the inputs and outputs.
  *
@@ -182,6 +179,7 @@ static GstCaps *
 gst_aml_vconv_transform_caps (GstBaseTransform * trans,
     GstPadDirection direction, GstCaps * caps, GstCaps * filter)
 {
+  (void)direction;
   GstCaps *tmp, *tmp2;
   GstCaps *result;
 
@@ -196,7 +194,7 @@ gst_aml_vconv_transform_caps (GstBaseTransform * trans,
 
   result = tmp;
 
-  GST_DEBUG_OBJECT (trans, "transformed %" GST_PTR_FORMAT " into %"
+  GST_INFO_OBJECT (trans, "transformed %" GST_PTR_FORMAT " into %"
       GST_PTR_FORMAT, caps, result);
 
   return result;
@@ -213,7 +211,7 @@ static void gst_aml_vconv_set_passthrough(GstAmlVConv *vconv) {
   if (in_info->width == out_info->width &&
       in_info->height == out_info->height &&
       GST_VIDEO_INFO_FORMAT(in_info) == GST_VIDEO_INFO_FORMAT(out_info) &&
-      vconv->imgproc.rotation == GST_AML_ROTATION_0) {
+      vconv->graphic.m_rotation == GFX_AML_ROTATION_0) {
     gst_base_transform_set_passthrough(GST_BASE_TRANSFORM(vconv), TRUE);
   } else {
     gst_base_transform_set_passthrough(GST_BASE_TRANSFORM(vconv), FALSE);
@@ -226,12 +224,14 @@ static void gst_aml_vconv_set_passthrough(GstAmlVConv *vconv) {
       ", rotation=%d",
       in_info->width, in_info->height, GST_VIDEO_INFO_FORMAT(in_info), in_info->size,
       out_info->width, out_info->height, GST_VIDEO_INFO_FORMAT(out_info), out_info->size,
-      vconv->imgproc.rotation);
+      vconv->graphic.m_rotation);
 }
 
 static gboolean gst_aml_vconv_set_info(GstVideoFilter *filter, GstCaps *in,
                                        GstVideoInfo *in_info, GstCaps *out,
                                        GstVideoInfo *out_info) {
+  (void)in;
+  (void)out;
   GstAmlVConv *vconv = GST_AMLVCONV(filter);
 
   memcpy(&vconv->in_info, in_info, sizeof(GstVideoInfo));
@@ -243,14 +243,60 @@ static gboolean gst_aml_vconv_set_info(GstVideoFilter *filter, GstCaps *in,
   return TRUE;
 }
 
+
+// 0, no check, >0, check memory overwrite (e.g. 100)
+#define CHECK_MEM_OVERWRITE  0
+
+static void gst_aml_memory_overwrite_set_magic(GstAmlVConv *self, GstMemory *memory, int size) {
+  if (CHECK_MEM_OVERWRITE <= 0) return;
+  GST_INFO_OBJECT(self, "Enter");
+
+  GstMapInfo mapinfo;
+  if (!gst_memory_map(memory, &mapinfo, GST_MAP_READWRITE)) {
+    GST_ERROR_OBJECT(self, "failed to map memory(%p)", memory);
+    return;
+  }
+  unsigned char *pData = mapinfo.data;
+  // unsigned char *pData = gst_amldmabuf_mmap(memory);
+  if (CHECK_MEM_OVERWRITE>0) {
+    memset(pData+size, 0x4D, CHECK_MEM_OVERWRITE);
+  }
+  gst_memory_unmap(memory, &mapinfo);
+  // if (pData) gst_amldmabuf_munmap(pData, memory);
+  GST_INFO_OBJECT(self, "Leave");
+}
+
+
+static void gst_aml_memory_overwrite_check_magic(GstAmlVConv *self, GstMemory *memory, int size) {
+  if (CHECK_MEM_OVERWRITE <=0 ) return;
+  GST_INFO_OBJECT(self, "Enter");
+
+  GstMapInfo mapinfo;
+  if (!gst_memory_map(memory, &mapinfo, GST_MAP_READWRITE)) {
+    GST_ERROR_OBJECT(self, "failed to map memory(%p)", memory);
+    return;
+  }
+  unsigned char *pData = mapinfo.data;
+  // unsigned char *pData = gst_amldmabuf_mmap(memory);
+  if (pData[size+CHECK_MEM_OVERWRITE-1] != 0x4D) {
+    GST_ERROR_OBJECT(self, "memory overflow, data=%x", pData[size+CHECK_MEM_OVERWRITE-1]);
+  }
+  gst_memory_unmap(memory, &mapinfo);
+  // if (pData) gst_amldmabuf_munmap(pData, memory);
+  GST_INFO_OBJECT(self, "Leave");
+}
+
+
 static GstFlowReturn
 gst_aml_vconv_prepare_output_buffer (GstBaseTransform * trans,
     GstBuffer * inbuf, GstBuffer ** outbuf)
 {
   GstFlowReturn ret;
   GstBaseTransformClass *bclass;
-  GstAmlVConv *vconv = GST_AMLVCONV (trans);
-  GstVideoFilter *filter = &vconv->element;
+  GstAmlVConv *self = GST_AMLVCONV (trans);
+  GstVideoFilter *filter = &self->element;
+
+  GST_INFO_OBJECT (self, "Enter");
 
   bclass = GST_BASE_TRANSFORM_GET_CLASS (trans);
 
@@ -258,7 +304,7 @@ gst_aml_vconv_prepare_output_buffer (GstBaseTransform * trans,
   if (gst_base_transform_is_passthrough (trans)) {
     /* passthrough, we will not modify the incoming buffer so we can just
      * reuse it */
-    GST_DEBUG_OBJECT (trans, "passthrough: reusing input buffer");
+    GST_INFO_OBJECT (trans, "passthrough: reusing input buffer");
     *outbuf = inbuf;
     goto done;
   }
@@ -266,10 +312,10 @@ gst_aml_vconv_prepare_output_buffer (GstBaseTransform * trans,
   if ((bclass->transform_ip != NULL) && gst_base_transform_is_in_place (trans)) {
     /* we want to do an in-place alloc */
     if (gst_buffer_is_writable (inbuf)) {
-      GST_DEBUG_OBJECT (trans, "inplace reuse writable input buffer");
+      GST_INFO_OBJECT (self, "inplace reuse writable input buffer");
       *outbuf = inbuf;
     } else {
-      GST_DEBUG_OBJECT (trans, "making writable buffer copy");
+      GST_INFO_OBJECT (self, "making writable buffer copy");
       /* we make a copy of the input buffer */
       *outbuf = gst_buffer_copy (inbuf);
     }
@@ -282,33 +328,31 @@ gst_aml_vconv_prepare_output_buffer (GstBaseTransform * trans,
     goto alloc_failed;
   }
 
-  if (vconv->dmabuf_alloc == NULL) {
-    vconv->dmabuf_alloc = gst_amlion_allocator_obtain();
-  }
-
-
   GstMemory *memory =
-      gst_allocator_alloc(vconv->dmabuf_alloc, filter->out_info.size, NULL);
+      gst_allocator_alloc(self->dmabuf_alloc, filter->out_info.size, NULL);
   gst_buffer_insert_memory(*outbuf, -1, memory);
 
   /* copy the metadata */
   if (bclass->copy_metadata)
     if (!bclass->copy_metadata (trans, inbuf, *outbuf)) {
       /* something failed, post a warning */
-      GST_ELEMENT_WARNING (trans, STREAM, NOT_IMPLEMENTED,
+      GST_ELEMENT_WARNING (self, STREAM, NOT_IMPLEMENTED,
           ("could not copy metadata"), (NULL));
     }
 
 done:
+  GST_INFO_OBJECT (self, "Leave");
   return GST_FLOW_OK;
 
   /* ERRORS */
 alloc_failed:
   {
-    GST_DEBUG_OBJECT (trans, "could not allocate buffer from pool");
+    GST_INFO_OBJECT (self, "could not allocate buffer from pool");
     return ret;
   }
 }
+
+
 
 static GstFlowReturn
 gst_aml_vconv_transform_frame (GstVideoFilter * filter,
@@ -316,80 +360,127 @@ gst_aml_vconv_transform_frame (GstVideoFilter * filter,
 {
   GstAmlVConv *self = GST_AMLVCONV (filter);
   GstFlowReturn ret = GST_FLOW_OK;
+  gint input_fd;
+  gint output_fd;
 
-  GST_DEBUG_OBJECT(self, "process begin");
-  if (self->imgproc.handle == NULL) {
-    self->imgproc.handle = imgproc_init();
-    if (self->imgproc.handle == NULL) {
-      GST_ELEMENT_ERROR(filter, CORE, NEGOTIATION, (NULL),
-                        ("imgproc not initialized"));
-      return GST_FLOW_NOT_NEGOTIATED;
-    }
-  }
+  GST_INFO_OBJECT(self, "process begin");
 
-  struct imgproc_buf inbuf, outbuf;
+  // output buffer
+  GFX_Buf outBuf;
+  outBuf.fd[0] = -1;
+  outBuf.format = gfx_convert_video_format(GST_VIDEO_INFO_FORMAT(&filter->out_info));
+  outBuf.plane_number = 1;
+  outBuf.size.w = filter->out_info.width;
+  outBuf.size.h = filter->out_info.height;
+
   GstMemory *out_memory = gst_buffer_get_memory (out_frame->buffer, 0);
   if (gst_is_dmabuf_memory (out_memory)) {
-    outbuf.fd = gst_dmabuf_memory_get_fd (out_memory);
-    outbuf.is_ionbuf = TRUE;
+    output_fd = gst_dmabuf_memory_get_fd (out_memory);
   }
-  if (outbuf.fd < 0) {
+  if (output_fd < 0) {
     GST_ERROR_OBJECT (self, "unexpected error: output should be dmabuffer");
     ret = GST_FLOW_ERROR;
     return ret;
   }
+  outBuf.fd[0] = output_fd;
+
+  // input buffer
+  GFX_Buf inBuf;
+  inBuf.format = gfx_convert_video_format(GST_VIDEO_INFO_FORMAT(&filter->in_info));
+  inBuf.plane_number = 1;
+  inBuf.size.w = filter->in_info.width;
+  inBuf.size.h = filter->in_info.height;
 
   GstMemory *in_memory = gst_buffer_get_memory (in_frame->buffer, 0);
-
-  if (self->dmabuf_alloc == NULL) {
-    self->dmabuf_alloc = gst_amlion_allocator_obtain();
-  }
-
   if (gst_is_dmabuf_memory (in_memory)) {
-    inbuf.fd = gst_dmabuf_memory_get_fd (in_memory);
+    GST_INFO_OBJECT(self, "in_memory is dma buffer");
+    input_fd = gst_dmabuf_memory_get_fd (in_memory);
   } else {
+    GST_INFO_OBJECT(self, "in_memory is not dma buffer");
     gst_memory_unref (in_memory);
-    in_memory =
-      gst_allocator_alloc(self->dmabuf_alloc, filter->in_info.size, NULL);
-    if (in_memory) {
-      GstMapInfo minfo;
-      inbuf.fd = gst_dmabuf_memory_get_fd (in_memory);
-      if (gst_memory_map (in_memory, &minfo, GST_MAP_WRITE)) {
-        guint8 *pixels = GST_VIDEO_FRAME_PLANE_DATA (in_frame, 0);
-        memcpy (minfo.data, pixels, minfo.size);
+
+    // create new dma memory reference
+    if (self->graphic.m_input.memory == NULL) {
+      self->graphic.m_input.memory =
+          gst_allocator_alloc(self->dmabuf_alloc, filter->in_info.size+CHECK_MEM_OVERWRITE, NULL);
+      if (self->graphic.m_input.memory == NULL) {
+        GST_ERROR_OBJECT(self, "failed to allocate input buffer, size=%ld", filter->in_info.size);
+        ret = GST_FLOW_ERROR;
+        goto transform_end;
       }
-      gst_memory_unmap (in_memory, &minfo);
+      self->graphic.m_input.fd = gst_dmabuf_memory_get_fd(self->graphic.m_input.memory);
+      self->graphic.m_input.size = filter->in_info.size;
+
+      GST_INFO_OBJECT(self, "new allocated dma buffer, m_input.memory=%p, m_input.fd=%d, in_info.size=%ld",
+        self->graphic.m_input.memory, self->graphic.m_input.fd, filter->in_info.size);
+
+      // set magic for check memory overwrite
+      gst_aml_memory_overwrite_set_magic(self, self->graphic.m_input.memory, filter->in_info.size);
+    }
+
+    GstMapInfo mapinfo;
+    if (!gst_memory_map(self->graphic.m_input.memory, &mapinfo, GST_MAP_READWRITE)) {
+      GST_ERROR_OBJECT(self, "failed to map memory(%p)", self->graphic.m_input.memory);
+      ret = GST_FLOW_ERROR;
+      goto transform_end;
+    }
+    unsigned char *pData = mapinfo.data;
+    // unsigned char *pData = gst_amldmabuf_mmap(self->graphic.m_input.memory);
+
+    guint8 *pixels = GST_VIDEO_FRAME_PLANE_DATA (in_frame, 0);
+
+    struct timeval st;
+    struct timeval ed;
+    double time_total;
+    gettimeofday(&st, NULL);
+
+    memcpy(pData, pixels, filter->in_info.size);
+
+    gettimeofday(&ed, NULL);
+    time_total = (ed.tv_sec - st.tv_sec)*1000000.0 + (ed.tv_usec - st.tv_usec);
+
+    GST_INFO_OBJECT(self, "copy to DMA buf done, pData=%p, pixels=%p, in_info.size=%ld, time=%lf uS",
+      pData, pixels, filter->in_info.size, time_total);
+
+    gst_memory_unmap(self->graphic.m_input.memory, &mapinfo);
+    // if (pData) gst_amldmabuf_munmap(pData, self->graphic.m_input.memory);
+
+    input_fd = self->graphic.m_input.fd;
+
+    if (CHECK_MEM_OVERWRITE>0) {
+      // fleet temp for checking memory overwrite
+      gst_aml_memory_overwrite_check_magic(self, self->graphic.m_input.memory, self->graphic.m_input.size);
     }
   }
 
-  if (inbuf.fd < 0) {
+  if (input_fd < 0) {
     GST_ERROR_OBJECT (self, "failed to obtain the input memory fd");
     ret = GST_FLOW_ERROR;
     goto transform_end;
   }
+  inBuf.fd[0] = input_fd;
 
-  inbuf.is_ionbuf = gst_is_amlionbuf_memory(in_memory);
+  GFX_Rect inRect, outRect;
+  inRect.x = 0;
+  inRect.y = 0;
+  inRect.w = inBuf.size.w;
+  inRect.h = inBuf.size.h;
+  outRect.x = 0;
+  outRect.y = 0;
+  outRect.w = outBuf.size.w;
+  outRect.h = outBuf.size.h;
 
-  struct imgproc_pos inpos = {0,
-                              0,
-                              filter->in_info.width,
-                              filter->in_info.height,
-                              filter->in_info.width,
-                              filter->in_info.height};
-  struct imgproc_pos outposition = {0,
-                               0,
-                               filter->out_info.width,
-                               filter->out_info.height,
-                               filter->out_info.width,
-                               filter->out_info.height};
+  GFX_Handle handle = self->graphic.m_gfxhandle;
 
-  if (!imgproc_transform(self->imgproc.handle, inbuf, inpos,
-                         GST_VIDEO_INFO_FORMAT(&filter->in_info), outbuf,
-                         outposition, GST_VIDEO_INFO_FORMAT(&filter->out_info),
-                         self->imgproc.rotation)) {
-    GST_ERROR_OBJECT(self, "failed to finish imgproc");
-    goto transform_end;
-  }
+  // then blit to Camera in buffer
+  gfx_stretchblit(handle,
+            &inBuf, &inRect,
+            &outBuf, &outRect,
+            GFX_AML_ROTATION_0,
+            0);
+
+  // sync command to HW, wait the executed complete
+  gfx_sync_cmd(handle);
 
   if (GST_VIDEO_INFO_FORMAT (&filter->out_info) == GST_VIDEO_FORMAT_I420) {
     guint8 *pixels = GST_VIDEO_FRAME_PLANE_DATA (out_frame, 0);
@@ -422,7 +513,7 @@ transform_end:
     gst_memory_unref (in_memory);
   }
 
-  GST_DEBUG_OBJECT(self, "process end");
+  GST_INFO_OBJECT(self, "process end");
 
   return ret;
 }
@@ -471,15 +562,15 @@ gst_aml_vconv_class_init (GstAmlVConvClass * klass)
   g_object_class_install_property(
       G_OBJECT_CLASS(klass), PROP_ROTATION,
       g_param_spec_enum("rotation", "rotation", "video rotation",
-                        GST_TYPE_AMLVCONV_ROTATION, DEFAULT_PROP_ROTATION,
+                        GST_TYPE_AMLVCONV_ROTATION, GFX_AML_ROTATION_0,
                         G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
 
   gst_element_class_set_details_simple (element_class,
     "Amlogic Video Converter",
     "Filter/Editor/Video",
-    "Video resize, color space transform module",
-    "Jemy Zhang <jun.zhang@amlogic.com>");
+    "Video rotate/resize, color space transform module",
+    "Tong Gao <Tong.Gao@amlogic.com>");
 
   gst_element_class_add_pad_template (element_class,
       gst_aml_vconv_sink_template_factory ());
@@ -508,12 +599,18 @@ gst_aml_vconv_class_init (GstAmlVConvClass * klass)
  * initialize instance structure
  */
 static void
-gst_aml_vconv_init (GstAmlVConv *vconv)
+gst_aml_vconv_init (GstAmlVConv *self)
 {
-  vconv->is_info_set = FALSE;
-  vconv->imgproc.handle = NULL;
-  vconv->imgproc.rotation = DEFAULT_PROP_ROTATION;
-  vconv->dmabuf_alloc = NULL;
+  self->is_info_set = FALSE;
+
+  self->graphic.m_gfxhandle = NULL;
+  self->graphic.m_rotation = GFX_AML_ROTATION_0;
+
+  self->graphic.m_input.memory = NULL;
+  self->graphic.m_input.fd = -1;
+  self->graphic.m_input.size = 0;
+
+  self->dmabuf_alloc = NULL;
 }
 
 static void
@@ -523,7 +620,7 @@ gst_aml_vconv_set_property (GObject * object, guint prop_id,
   GstAmlVConv *self = GST_AMLVCONV (object);
   switch (prop_id) {
   case PROP_ROTATION:
-    self->imgproc.rotation = g_value_get_enum(value);
+    self->graphic.m_rotation = g_value_get_enum(value);
     gst_aml_vconv_set_passthrough(self);
     break;
   default:
@@ -539,7 +636,7 @@ gst_aml_vconv_get_property (GObject * object, guint prop_id,
   GstAmlVConv *self = GST_AMLVCONV (object);
   switch (prop_id) {
   case PROP_ROTATION:
-    g_value_set_enum(value, self->imgproc.rotation);
+    g_value_set_enum(value, self->graphic.m_rotation);
     break;
   default:
     G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
@@ -550,6 +647,21 @@ gst_aml_vconv_get_property (GObject * object, guint prop_id,
 static gboolean
 gst_aml_vconv_open (GstBaseTransform *trans)
 {
+  GstAmlVConv *self = GST_AMLVCONV (trans);
+
+  // init 2d gfx engine
+  self->graphic.m_gfxhandle = gfx_init();
+  if (self->graphic.m_gfxhandle == NULL) {
+    GST_ERROR_OBJECT(self, "failed to initialize gfx2d");
+    return FALSE;
+  }
+
+  // init DMA allocator
+  if (self->dmabuf_alloc == NULL) {
+    self->dmabuf_alloc = gst_amldma_allocator_obtain("heap-gfx");
+    if (self->dmabuf_alloc == NULL)
+      return FALSE;
+  }
   return TRUE;
 }
 
@@ -557,14 +669,24 @@ static gboolean
 gst_aml_vconv_close (GstBaseTransform *trans)
 {
   GstAmlVConv *self = GST_AMLVCONV (trans);
-  if (self->imgproc.handle != NULL) {
-    imgproc_deinit (self->imgproc.handle);
-    self->imgproc.handle = NULL;
+
+  if (self->graphic.m_input.memory) {
+    gst_memory_unref(self->graphic.m_input.memory);
+    self->graphic.m_input.memory = NULL;
+    self->graphic.m_input.fd = -1;
+    self->graphic.m_input.size = 0;
   }
+
   if (self->dmabuf_alloc) {
-    gst_object_unref (self->dmabuf_alloc);
+    gst_object_unref(self->dmabuf_alloc);
     self->dmabuf_alloc = NULL;
   }
+
+  if (self->graphic.m_gfxhandle) {
+    gfx_deinit(self->graphic.m_gfxhandle);
+    self->graphic.m_gfxhandle = NULL;
+  }
+
   return TRUE;
 }
 

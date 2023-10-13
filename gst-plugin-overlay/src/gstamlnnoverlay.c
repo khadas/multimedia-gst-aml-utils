@@ -41,8 +41,8 @@
 #include "config.h"
 #endif
 
-#include <gst/allocators/gstamlionallocator.h>
 #include <gst/allocators/gstdmabuf.h>
+#include <gst/allocators/gstamldmaallocator.h>
 #include <gst/base/base.h>
 #include <gst/controller/controller.h>
 #include <gst/gst.h>
@@ -77,11 +77,6 @@ GST_DEBUG_CATEGORY_STATIC(gst_aml_nn_overlay_debug);
 #define DEFAULT_PROP_FONTFILE "/usr/share/directfb-1.7.7/decker.ttf"
 #define DEFAULT_PROP_FONTSIZE 24
 
-
-#define DEFAULT_PROP_FONTCOLOR 0x00ffffff
-
-#define DEFAULT_PROP_RECTCOLOR 0xff0000ff
-#define TEMP_SURFACE_COLOR_FORMAT GST_VIDEO_FORMAT_RGBA
 
 #define DEFAULT_PROP_RECT_THICKNESS 6
 
@@ -292,7 +287,7 @@ static void gst_aml_nn_overlay_set_property(GObject *object, guint prop_id,
     self->nn.font.fgcolor = g_value_get_uint(value);
     break;
   case PROP_FONTSIZE: {
-    guint val = g_value_get_int(value);
+    gint val = g_value_get_int(value);
     if (val != self->nn.font.size) {
       self->nn.font.size = val;
       //gst_aml_overlay_delay_destroy_font(&self->nn.hfont);
@@ -459,7 +454,7 @@ static GstFlowReturn gst_aml_nn_overlay_transform_ip(GstBaseTransform *trans,
 
   GstVideoInfo *info = &base->info;
 
-  if (base->graphic.input.fd < 0) {
+  if (base->graphic.m_input.fd < 0) {
     GST_ERROR_OBJECT(self, "failed to obtain the input memory fd");
     return GST_FLOW_ERROR;
   }
@@ -470,20 +465,20 @@ static GstFlowReturn gst_aml_nn_overlay_transform_ip(GstBaseTransform *trans,
   gettimeofday(&st, NULL);
 
   GFX_Buf inBuf;
-  inBuf.fd = base->graphic.input.fd;
+  inBuf.fd[0] = base->graphic.m_input.fd;
   inBuf.format = gfx_convert_video_format(GST_VIDEO_INFO_FORMAT(info));
-  inBuf.is_ionbuf = gst_is_amlionbuf_memory(base->graphic.input.memory);
+  inBuf.plane_number = 1;
   inBuf.size.w = info->width;
   inBuf.size.h = info->height;
 
   GFX_Buf outBuf;
-  outBuf.fd = base->graphic.output.fd;
+  outBuf.fd[0] = base->graphic.m_output.fd;
   outBuf.format = gfx_convert_video_format(TEMP_SURFACE_COLOR_FORMAT);
-  outBuf.is_ionbuf = gst_is_amlionbuf_memory(base->graphic.output.memory);
+  outBuf.plane_number = 1;
   outBuf.size.w = info->width;
   outBuf.size.h = info->height;
 
-  GFX_Handle handle = base->graphic.handle;
+  GFX_Handle handle = base->graphic.m_gfxhandle;
 
   // get display buffer
   g_mutex_lock(&base->graphic.surface_lock);
@@ -496,9 +491,9 @@ static GstFlowReturn gst_aml_nn_overlay_transform_ip(GstBaseTransform *trans,
   if (-1 != display_idx) {
     // overlay display buffer to output buffer
     GFX_Buf topBuf;
-    topBuf.fd = base->graphic.render[display_idx].fd;
+    topBuf.fd[0] = base->graphic.m_render[display_idx].fd;
     topBuf.format = gfx_convert_video_format(TEMP_SURFACE_COLOR_FORMAT);
-    topBuf.is_ionbuf = gst_is_amlionbuf_memory(base->graphic.render[display_idx].memory);
+    topBuf.plane_number = 1;
     topBuf.size.w = info->width;
     topBuf.size.h = info->height;
 
@@ -601,7 +596,7 @@ static gpointer overlay_process(void *data) {
 
   GST_INFO_OBJECT(self, "Enter, m_running=%d, m_ready=%d", self->m_running, self->m_ready);
 
-  GFX_Handle handle = base->graphic.handle;
+  GFX_Handle handle = base->graphic.m_gfxhandle;
 
   while (self->m_running) {
     g_mutex_lock(&self->m_mutex);
@@ -701,26 +696,28 @@ static gpointer overlay_process(void *data) {
     double time_total;
     gettimeofday(&st, NULL);
 
-    GstMapInfo minfo;
-    if (!gst_memory_map(base->graphic.render[render_idx].memory, &minfo, GST_MAP_WRITE)) {
-      GST_ERROR_OBJECT(self, "failed to map new dma buffer");
+    GstMapInfo mapinfo;
+    if (!gst_memory_map(base->graphic.m_render[render_idx].memory, &mapinfo, GST_MAP_READWRITE)) {
+      GST_ERROR_OBJECT(self, "failed to map memory(%p)", base->graphic.m_render[render_idx].memory);
       goto loop_continue;
     }
+    unsigned char *pData = mapinfo.data;
+    // unsigned char *pData = gst_amldmabuf_mmap(base->graphic.m_render[render_idx].memory);
 
     GFX_Buf topBuf;
-    topBuf.fd = base->graphic.render[render_idx].fd;
+    topBuf.fd[0] = base->graphic.m_render[render_idx].fd;
     topBuf.format = gfx_convert_video_format(TEMP_SURFACE_COLOR_FORMAT);
-    topBuf.is_ionbuf = gst_is_amlionbuf_memory(base->graphic.render[render_idx].memory);
+    topBuf.plane_number = 1;
     topBuf.size.w = info->width;
     topBuf.size.h = info->height;
 
-    // // Fill the rectangle with transparent color in the graphic.temp.fd
+    // // Fill the rectangle with transparent color in the render buffer
     GFX_Rect *pDirtyRect = &base->graphic.dirtyRect[render_idx];
 
     // if input buffer support Alpha, can blend directly
     if (1 != gfx_isEmptyArea(pDirtyRect)) {
       // //gfx_fillrect(handle, &topBuf, pDirtyRect, 0, 1);
-      gfx_fillrect_software(handle, &topBuf, minfo.data, pDirtyRect, GFX_DEFAULT_ALPHA);
+      gfx_fillrect_software(handle, &topBuf, pData, pDirtyRect, GFX_DEFAULT_ALPHA);
 
       // clean the new render buffer dirty area
       memset(pDirtyRect, 0, sizeof(GFX_Rect));
@@ -738,8 +735,8 @@ static gpointer overlay_process(void *data) {
 
       gfx_updateDirtyArea(&topBuf, pDirtyRect, &small_rect);
 
-      // Draw the border rectangle in the graphic.temp.fd
-      gfx_drawrect_software(handle, &topBuf, minfo.data, &small_rect, self->nn.rectcolor, DEFAULT_PROP_RECT_THICKNESS);
+      // Draw the border rectangle in the render buffer
+      gfx_drawrect_software(handle, &topBuf, pData, &small_rect, self->nn.rectcolor, DEFAULT_PROP_RECT_THICKNESS);
 
       // draw point
       // for (gint j = 0; j<5; j++) {
@@ -747,12 +744,13 @@ static gpointer overlay_process(void *data) {
       //                   pNNData[i].pos[j].y,
       //                   DEFAULT_PROP_RECT_THICKNESS,
       //                   DEFAULT_PROP_RECT_THICKNESS};
-      //   gfx_drawrect_software(handle, &topBuf, minfo.data, &posRect, self->nn.rectcolor, DEFAULT_PROP_RECT_THICKNESS);
+      //   gfx_drawrect_software(handle, &topBuf, pData, &posRect, self->nn.rectcolor, DEFAULT_PROP_RECT_THICKNESS);
       // }
     }
     // memcpy(pDirtyRect, &rect, sizeof(GFX_Rect));
 
-    gst_memory_unmap(base->graphic.render[render_idx].memory, &minfo);
+    gst_memory_unmap(base->graphic.m_render[render_idx].memory, &mapinfo);
+    // if (pData) gst_amldmabuf_munmap(pData, base->graphic.m_render[render_idx].memory);
 
     GST_INFO_OBJECT(self, "pDirtyRect(%d %d %d %d)", pDirtyRect->x, pDirtyRect->y, pDirtyRect->w, pDirtyRect->h);
 

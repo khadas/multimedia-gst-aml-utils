@@ -24,55 +24,62 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __GST_AMLAmlIONALLOCATOR_H__
-#define __GST_AMLAmlIONALLOCATOR_H__
+#ifndef __GST_AML_DMA_ALLOCATOR_H__
+#define __GST_AML_DMA_ALLOCATOR_H__
 
 #include <gst/gst.h>
 #include <gst/gstallocator.h>
 
 G_BEGIN_DECLS
 
-typedef struct _GstAmlIONAllocator GstAmlIONAllocator;
-typedef struct _GstAmlIONAllocatorClass GstAmlIONAllocatorClass;
-typedef struct _GstAmlIONMemory GstAmlIONMemory;
+typedef struct _GstAmlDMAAllocator GstAmlDMAAllocator;
+typedef struct _GstAmlDMAAllocatorClass GstAmlDMAAllocatorClass;
+typedef struct _GstAmlDMAMemory GstAmlDMAMemory;
 
-#define GST_ALLOCATOR_AMLION "amlionmem"
+#define GST_ALLOCATOR_AMLDMA "amldma"
 
-#define GST_TYPE_AMLION_ALLOCATOR gst_amlion_allocator_get_type ()
-#define GST_IS_AMLION_ALLOCATOR(obj) (G_TYPE_CHECK_INSTANCE_TYPE ((obj), \
-    GST_TYPE_AMLION_ALLOCATOR))
-#define GST_AMLION_ALLOCATOR(obj) \
-  (G_TYPE_CHECK_INSTANCE_CAST((obj), GST_TYPE_AMLION_ALLOCATOR, GstAmlIONAllocator))
-#define GST_AMLION_ALLOCATOR_CLASS(klass) \
-  (G_TYPE_CHECK_CLASS_CAST((klass), GST_TYPE_AMLION_ALLOCATOR, GstAmlIONAllocatorClass))
-#define GST_AMLION_ALLOCATOR_CAST(obj) ((GstAmlIONAllocator *)(obj))
+#define GST_TYPE_AMLDMA_ALLOCATOR gst_amldma_allocator_get_type ()
+#define GST_IS_AMLDMA_ALLOCATOR(obj) (G_TYPE_CHECK_INSTANCE_TYPE ((obj), \
+    GST_TYPE_AMLDMA_ALLOCATOR))
+#define GST_AMLDMA_ALLOCATOR(obj) \
+  (G_TYPE_CHECK_INSTANCE_CAST((obj), GST_TYPE_AMLDMA_ALLOCATOR, GstAmlDMAAllocator))
+#define GST_AMLDMA_ALLOCATOR_CLASS(klass) \
+  (G_TYPE_CHECK_CLASS_CAST((klass), GST_TYPE_AMLDMA_ALLOCATOR, GstAmlDMAAllocatorClass))
+#define GST_AMLDMA_ALLOCATOR_CAST(obj) ((GstAmlDMAAllocator *)(obj))
 
-#define GST_AMLION_MEMORY_QUARK gst_amlion_memory_quark ()
+#define GST_AMLDMA_MEMORY_QUARK gst_amldma_memory_quark ()
 
-struct _GstAmlIONAllocator
+struct _GstAmlDMAAllocator
 {
   GstAllocator parent;
 
-  gint fd;
+  gint heap_fd;  // device fd
   GstAllocator *dma_allocator;
 };
 
-struct _GstAmlIONAllocatorClass
+struct _GstAmlDMAAllocatorClass
 {
   GstAllocatorClass parent;
 };
 
-struct _GstAmlIONMemory {
+struct _GstAmlDMAMemory {
   GstMemory mem;
 
-  gint fd;
+  gint dmabuf_fd;  // DMA buffer fd
   gsize size;
 };
 
-GType gst_amlion_allocator_get_type (void);
-GstAllocator* gst_amlion_allocator_obtain (void);
-gboolean gst_is_amlionbuf_memory (GstMemory * mem);
+GType gst_amldma_allocator_get_type (void);
+GstAllocator* gst_amldma_allocator_obtain (char *name);
+
+
+// The following API no useful now, use standard API
+// gboolean gst_is_amldmabuf_getfd (GstMemory * mem);
+// gint gst_amldmabuf_memory_get_fd (GstMemory * mem);
+// unsigned char *gst_amldmabuf_mmap (GstMemory * mem);
+// void gst_amldmabuf_munmap (unsigned char *p, GstMemory * mem);
+
 
 G_END_DECLS
 
-#endif /* __GST_AMLAmlIONALLOCATOR_H__ */
+#endif /* __GST_AML_DMA_ALLOCATOR_H__ */

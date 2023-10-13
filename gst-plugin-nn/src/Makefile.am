@@ -13,7 +13,7 @@ libgstamlnn_la_CFLAGS = $(GST_CFLAGS) \
 
 libgstamlnn_la_LIBADD = $(GST_LIBS) \
 			$(SQLITE3_LIBS) \
-			-lgst-aml-ion-allocator \
+			-lgst-aml-dma-allocator \
 			-lgst-aml-gfx2d \
 			-ldetect-library \
 			-lge2d \

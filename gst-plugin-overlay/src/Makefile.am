@@ -13,7 +13,7 @@ libgstamloverlay_la_CFLAGS = $(GST_CFLAGS) \
 			     			-I$(STAGING_DIR)/usr/include/
 
 libgstamloverlay_la_LIBADD = $(GST_LIBS) \
- 		    	     		-lgst-aml-ion-allocator \
+ 		    	     		-lgst-aml-dma-allocator \
  		    	     		-lgst-aml-gfx2d \
  		    	     		-lge2d
 

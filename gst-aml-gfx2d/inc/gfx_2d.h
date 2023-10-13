@@ -30,31 +30,34 @@
 
 typedef struct _GFX_Rectangle
 {
-  int x;
-  int y;
-  int w;
-  int h;
+  unsigned int x;
+  unsigned int y;
+  unsigned int w;
+  unsigned int h;
 }GFX_Rect;
 
 
 typedef struct _GFX_Position
 {
-  int x;
-  int y;
+  unsigned int x;
+  unsigned int y;
 }GFX_Pos;
 
 
 typedef struct _GFX_Size
 {
-  int w;
-  int h;
+  unsigned int w;
+  unsigned int h;
 }GFX_Size;
 
+#define MAX_PLANE_NUM 4
 
 typedef struct _GFX_Buffer {
-  int fd;
-  int format;   // gst color format
-  int is_ionbuf;
+  unsigned int format;   // ge2d color format
+  unsigned int plane_number;
+  unsigned int fd[MAX_PLANE_NUM];
+  unsigned int data_size[MAX_PLANE_NUM];
+  unsigned char *vaddr[MAX_PLANE_NUM];
   GFX_Size size;
 }GFX_Buf;
 
@@ -142,7 +145,7 @@ Return:
 extern GFX_Return gfx_fillrect(GFX_Handle handle,
                               GFX_Buf *pBuf,
                               GFX_Rect *pRect,
-                              int color,
+                              unsigned int color,
                               int sync);
 
 
@@ -167,14 +170,14 @@ Return:
 extern GFX_Return gfx_drawrect(GFX_Handle handle,
                                 GFX_Buf *pBuf,
                                 GFX_Rect *pRect,
-                                int color,
-                                int thickness,
+                                unsigned int color,
+                                unsigned int thickness,
                                 int sync);
 
 
 
 /*************************************************
-Function:       gfx_drawrect_software
+Function:       gfx_fillrect_software
 Description:    draw the rectangle to the buffer with CPU
                 it's sync command, no need to push to command queue
 Input:
@@ -192,7 +195,7 @@ extern GFX_Return gfx_fillrect_software(GFX_Handle handle,
                                         GFX_Buf *pBuf,
                                         unsigned char *pMemory,
                                         GFX_Rect *pRect,
-                                        int color);
+                                        unsigned int color);
 
 
 
@@ -216,8 +219,8 @@ extern GFX_Return gfx_drawrect_software(GFX_Handle handle,
                                         GFX_Buf *pBuf,
                                         unsigned char *pMemory,
                                         GFX_Rect *pRect,
-                                        int color,
-                                        int thickness);
+                                        unsigned int color,
+                                        unsigned int thickness);
 
 
 

@@ -23,54 +23,51 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#ifndef _GFX_2D_HW_PRIVATE_H
-#define _GFX_2D_HW_PRIVATE_H
+#ifndef _DMABUF_ALLOCATOR_H
+#define _DMABUF_ALLOCATOR_H
 
-#include <gst/gst.h>
-
-
-#define GFX_LOG_ENABLE 1
-
-#define GFX_SUPPORT_CMD_Q 0
-
-
-#if GFX_LOG_ENABLE
-#define GFX_INFO GST_INFO
-#else
-#define GFX_INFO
-#endif
-
-#define GFX_ERROR GST_ERROR
-
-
-typedef struct _gfx_info {
-  aml_ge2d_t ge2d;
-}gfx_info;
-
+#include "dma_log.h"
 
 
 
 /*************************************************
-Description:    convert video rotation type
+Function:       aml_dmabuf_heap_open
+Description:    open DMA heap pool
 Input:
-  rotation : Gfx define rotation enum
-Return:         GE2D define rotation enum
+  name : the heap pool name
+Output:         N/A
+Return:
+  >=0 : success, return the file handle of DMA heap
+  <0  : failed
 *************************************************/
-int gfx_convert_video_rotation(GfxAmlRotation rotation);
-
-void gfx_fill_params(GFX_Buf *pBuf,
-                      GFX_Rect *pRect,
-                      buffer_info_t *info);
-
-void gfx_clear_ge2d_info(aml_ge2d_info_t *pge2dinfo);
+int aml_dmabuf_heap_open(char *name);
 
 
-GFX_Return gfx_check_buf_rect(GFX_Buf *pBuf, GFX_Rect *pRect);
+/*************************************************
+Function:       aml_dmabuf_heap_alloc
+Description:    allocate memory from DMA heap pool
+Input:
+  dev_fd : the file handle of DMA heap
+  len : the size of request
+Output:
+  dmabuf_fd : the file handle of DMA buffer
+Return:
+  >=0 : success
+  <0  : failed
+*************************************************/
+int aml_dmabuf_heap_alloc(int dev_fd, size_t len, int *dmabuf_fd);
+
+/*************************************************
+Function:       aml_dmabuf_heap_free
+Description: free memory from DMA heap pool
+Input:
+  dmabuf_fd : the file handle of DMA buffer
+Output:         N/A
+Return:
+  >=0 : success
+  <0  : failed
+*************************************************/
+int aml_dmabuf_heap_free(int dmabuf_fd);
 
 
-void gfx_print_params(aml_ge2d_info_t *pge2dinfo);
-
-GFX_Return gfx_do_ge2d_cmd(aml_ge2d_info_t *pInfo, int sync);
-
-
-#endif /* _GFX_2D_HW_PRIVATE_H */
+#endif /* _DMABUF_ALLOCATOR_H */

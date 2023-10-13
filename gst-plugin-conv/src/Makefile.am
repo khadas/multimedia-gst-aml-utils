@@ -12,8 +12,7 @@ libgstamlvconv_la_CFLAGS = $(GST_CFLAGS) \
 
 
 libgstamlvconv_la_LIBADD = $(GST_LIBS) \
-		    	     		-lgst-aml-ion-allocator \
-	    	        		-lgst-aml-imgproc \
+		    	     		-lgst-aml-dma-allocator \
 		    	     		-lgst-aml-gfx2d \
 		    	     		-lge2d
 

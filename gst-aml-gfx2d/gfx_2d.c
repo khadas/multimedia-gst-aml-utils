@@ -49,12 +49,11 @@ GFX_Handle gfx_init() {
 }
 
 
-
 GFX_Return gfx_deinit(GFX_Handle handle) {
   if (NULL == handle) return GFX_Ret_Error;
   gfx_info *pInfo = (gfx_info *)handle;
 
-  GFX_INFO(" handle=%p", handle);
+  GFX_INFO("handle=%p", handle);
 
   aml_ge2d_exit(&pInfo->ge2d);
 
@@ -66,14 +65,14 @@ GFX_Return gfx_deinit(GFX_Handle handle) {
 
 
 GFX_Return gfx_sync_cmd(GFX_Handle handle) {
-# if GFX_SUPPORT_CMD_Q
   if (NULL == handle) return GFX_Ret_Error;
-
+# if GFX_SUPPORT_CMD_Q
   GFX_INFO("Enter handle=%p", handle);
-  gfx_info *info = (gfx_info *)handle;
-  aml_ge2d_info_t *pge2dinfo = &info->ge2d.ge2dinfo;
 
-  if (aml_ge2d_post_queue(pge2dinfo) != ge2d_success) {
+  gfx_info *info = (gfx_info *)handle;
+  aml_ge2d_info_t *pInfoinfo = &info->ge2d.ge2dinfo;
+
+  if (aml_ge2d_post_queue(pInfoinfo) != ge2d_success) {
     GFX_ERROR("aml_ge2d_post_queue failed");
     return GFX_Ret_Error;
   }
@@ -87,17 +86,17 @@ GFX_Return gfx_sync_cmd(GFX_Handle handle) {
 GFX_Return gfx_fillrect(GFX_Handle handle,
                         GFX_Buf *pBuf,
                         GFX_Rect *pRect,
-                        int color,
+                        unsigned int color,
                         int sync) {
   if (NULL == handle) return GFX_Ret_Error;
   if (NULL == pBuf) return GFX_Ret_Error;
   if (NULL == pRect) return GFX_Ret_Error;
   gfx_info *info = (gfx_info *)handle;
-  aml_ge2d_info_t *pge2dinfo = &info->ge2d.ge2dinfo;
+  aml_ge2d_info_t *pInfoinfo = &info->ge2d.ge2dinfo;
 
-  GFX_INFO("Enter handle=%p pBuf(fd:%d format:%d ion:%d size:(%d %d)) pRect(%d %d %d %d) color=%x",
+  GFX_INFO("Enter handle=%p pBuf(fd:%d format:%d plane_number(%d) size:(%d %d)) pRect(%d %d %d %d) color=%x",
     handle,
-    pBuf->fd, pBuf->format, pBuf->is_ionbuf, pBuf->size.w, pBuf->size.h,
+    pBuf->fd[0], pBuf->format, pBuf->plane_number, pBuf->size.w, pBuf->size.h,
     pRect->x, pRect->y, pRect->w, pRect->h, color);
 
   if (GFX_Ret_OK != gfx_check_buf_rect(pBuf, pRect))  {
@@ -105,27 +104,25 @@ GFX_Return gfx_fillrect(GFX_Handle handle,
   }
 
   // clear ge2d structure
-  gfx_clear_ge2d_info(pge2dinfo);
+  gfx_clear_ge2d_info(pInfoinfo);
 
   // do fillrect
-  pge2dinfo->src_info[0].canvas_w = pBuf->size.w;
-  pge2dinfo->src_info[0].canvas_h = pBuf->size.h;
-  pge2dinfo->src_info[0].format = pBuf->format;
+  pInfoinfo->src_info[0].canvas_w = pBuf->size.w;
+  pInfoinfo->src_info[0].canvas_h = pBuf->size.h;
+  pInfoinfo->src_info[0].format = pBuf->format;
 
-  gfx_fill_params(pBuf, pRect, &pge2dinfo->dst_info);
-  pge2dinfo->dst_info.layer_mode = LAYER_MODE_PREMULTIPLIED;
-  pge2dinfo->dst_info.plane_alpha = GFX_DEFAULT_ALPHA;
-  pge2dinfo->dst_info.memtype = GE2D_CANVAS_ALLOC;
-  pge2dinfo->dst_info.plane_number = 1;
+  gfx_fill_params(pBuf, pRect, &pInfoinfo->dst_info);
+  pInfoinfo->dst_info.layer_mode = LAYER_MODE_PREMULTIPLIED;
+  pInfoinfo->dst_info.plane_alpha = GFX_DEFAULT_ALPHA;
 
-  pge2dinfo->color = color;
-  pge2dinfo->ge2d_op = AML_GE2D_FILLRECTANGLE;
-  pge2dinfo->blend_mode = BLEND_MODE_PREMULTIPLIED;
+  pInfoinfo->color = color;
+  pInfoinfo->ge2d_op = AML_GE2D_FILLRECTANGLE;
+  pInfoinfo->blend_mode = BLEND_MODE_PREMULTIPLIED;
 
-  gfx_print_params(pge2dinfo);
-  if (gfx_do_ge2d_cmd(pge2dinfo, sync) < 0) {
+  gfx_print_params(pInfoinfo);
+  if (gfx_do_ge2d_cmd(pInfoinfo, sync) < 0) {
     GFX_ERROR("gfx_do_ge2d_cmd failed");
-    gfx_print_params(pge2dinfo);
+    gfx_print_params(pInfoinfo);
     return GFX_Ret_Error;
   }
 
@@ -137,18 +134,18 @@ GFX_Return gfx_fillrect(GFX_Handle handle,
 GFX_Return gfx_drawrect(GFX_Handle handle,
                         GFX_Buf *pBuf,
                         GFX_Rect *pRect,
-                        int color,
-                        int thickness,
+                        unsigned int color,
+                        unsigned int thickness,
                         int sync) {
   if (NULL == handle) return GFX_Ret_Error;
   if (NULL == pBuf) return GFX_Ret_Error;
   if (NULL == pRect) return GFX_Ret_Error;
   gfx_info *info = (gfx_info *)handle;
-  aml_ge2d_info_t *pge2dinfo = &info->ge2d.ge2dinfo;
+  aml_ge2d_info_t *pInfoinfo = &info->ge2d.ge2dinfo;
 
-  GFX_INFO("Enter handle=%p pBuf(fd:%d format:%d ion:%d size:(%d %d)) pRect(%d %d %d %d) color=%x thickness=%x",
+  GFX_INFO("Enter handle=%p pBuf(fd:%d format:%d plane_number:%d size:(%d %d)) pRect(%d %d %d %d) color=%x thickness=%x",
     handle,
-    pBuf->fd, pBuf->format, pBuf->is_ionbuf, pBuf->size.w, pBuf->size.h,
+    pBuf->fd[0], pBuf->format, pBuf->plane_number, pBuf->size.w, pBuf->size.h,
     pRect->x, pRect->y, pRect->w, pRect->h, color, thickness);
 
   if (GFX_Ret_OK != gfx_check_buf_rect(pBuf, pRect))
@@ -163,34 +160,32 @@ GFX_Return gfx_drawrect(GFX_Handle handle,
   }
 
   // clear ge2d structure
-  gfx_clear_ge2d_info(pge2dinfo);
+  gfx_clear_ge2d_info(pInfoinfo);
 
   // do outer fillrect
 
-  pge2dinfo->src_info[0].canvas_w = pBuf->size.w;
-  pge2dinfo->src_info[0].canvas_h = pBuf->size.h;
-  pge2dinfo->src_info[0].format = pBuf->format;
+  pInfoinfo->src_info[0].canvas_w = pBuf->size.w;
+  pInfoinfo->src_info[0].canvas_h = pBuf->size.h;
+  pInfoinfo->src_info[0].format = pBuf->format;
 
-  gfx_fill_params(pBuf, pRect, &pge2dinfo->dst_info);
-  pge2dinfo->dst_info.layer_mode = LAYER_MODE_PREMULTIPLIED;
-  pge2dinfo->dst_info.plane_alpha = GFX_DEFAULT_ALPHA;
-  pge2dinfo->dst_info.memtype = GE2D_CANVAS_ALLOC;
-  pge2dinfo->dst_info.plane_number = 1;
+  gfx_fill_params(pBuf, pRect, &pInfoinfo->dst_info);
+  pInfoinfo->dst_info.layer_mode = LAYER_MODE_PREMULTIPLIED;
+  pInfoinfo->dst_info.plane_alpha = GFX_DEFAULT_ALPHA;
 
-  pge2dinfo->color = color;
-  pge2dinfo->ge2d_op = AML_GE2D_FILLRECTANGLE;
-  pge2dinfo->blend_mode = BLEND_MODE_PREMULTIPLIED;
+  pInfoinfo->color = color;
+  pInfoinfo->ge2d_op = AML_GE2D_FILLRECTANGLE;
+  pInfoinfo->blend_mode = BLEND_MODE_PREMULTIPLIED;
 
-  if (gfx_do_ge2d_cmd(pge2dinfo, sync) < 0) {
+  if (gfx_do_ge2d_cmd(pInfoinfo, sync) < 0) {
     GFX_ERROR("gfx_do_ge2d_cmd failed");
-    gfx_print_params(pge2dinfo);
+    gfx_print_params(pInfoinfo);
     return GFX_Ret_Error;
   }
 
   GFX_INFO("Enter outer rectangle done");
 
   // clear ge2d structure
-  //gfx_clear_ge2d_info(pge2dinfo);
+  //gfx_clear_ge2d_info(pInfoinfo);
 
   // prepare for inner fillrect
   GFX_Rect inner_rect;
@@ -200,19 +195,17 @@ GFX_Return gfx_drawrect(GFX_Handle handle,
   inner_rect.h = pRect->h-thickness*2;
 
   // // do inner fillrect
-  gfx_fill_params(pBuf, &inner_rect, &pge2dinfo->dst_info);
-  pge2dinfo->dst_info.layer_mode = LAYER_MODE_PREMULTIPLIED;
-  pge2dinfo->dst_info.plane_alpha = GFX_DEFAULT_ALPHA;
-  pge2dinfo->dst_info.memtype = GE2D_CANVAS_ALLOC;
-  pge2dinfo->dst_info.plane_number = 1;
+  gfx_fill_params(pBuf, &inner_rect, &pInfoinfo->dst_info);
+  pInfoinfo->dst_info.layer_mode = LAYER_MODE_PREMULTIPLIED;
+  pInfoinfo->dst_info.plane_alpha = GFX_DEFAULT_ALPHA;
 
-  pge2dinfo->color = 0;
-  pge2dinfo->ge2d_op = AML_GE2D_FILLRECTANGLE;
-  pge2dinfo->blend_mode = BLEND_MODE_PREMULTIPLIED;
+  pInfoinfo->color = 0;
+  pInfoinfo->ge2d_op = AML_GE2D_FILLRECTANGLE;
+  pInfoinfo->blend_mode = BLEND_MODE_PREMULTIPLIED;
 
-  if (gfx_do_ge2d_cmd(pge2dinfo, sync) < 0) {
+  if (gfx_do_ge2d_cmd(pInfoinfo, sync) < 0) {
     GFX_ERROR("gfx_do_ge2d_cmd failed");
-    gfx_print_params(pge2dinfo);
+    gfx_print_params(pInfoinfo);
     return GFX_Ret_Error;
   }
 
@@ -233,16 +226,16 @@ GFX_Return gfx_fillrect_software(GFX_Handle handle,
                                   GFX_Buf *pBuf,
                                   unsigned char *pMemory,
                                   GFX_Rect *pRect,
-                                  int color)
+                                  unsigned int color)
 {
   if (NULL == handle) return GFX_Ret_Error;
   if (NULL == pBuf) return GFX_Ret_Error;
   if (NULL == pMemory) return GFX_Ret_Error;
   if (NULL == pRect) return GFX_Ret_Error;
 
-  GFX_INFO("handle=%p pBuf(fd:%d format:%d ion:%d size:(%d %d)) pMemory(%p) pRect(%d %d %d %d) color=%x",
+  GFX_INFO("handle=%p pBuf(fd:%d format:%d plane_number:%d size:(%d %d)) pMemory(%p) pRect(%d %d %d %d) color=%x",
     handle,
-    pBuf->fd, pBuf->format, pBuf->is_ionbuf, pBuf->size.w, pBuf->size.h, pMemory,
+    pBuf->fd[0], pBuf->format, pBuf->plane_number, pBuf->size.w, pBuf->size.h, pMemory,
     pRect->x, pRect->y, pRect->w, pRect->h, color);
 
   if (GFX_Ret_OK != gfx_check_buf_rect(pBuf, pRect))
@@ -250,14 +243,14 @@ GFX_Return gfx_fillrect_software(GFX_Handle handle,
     return GFX_Ret_Error;
   }
 
-  int pitch = (((pBuf->size.w * 4) + 31) & ~31);
-  int i = 0;
-  int j = 0;
+  unsigned int pitch = (((pBuf->size.w * 4) + 31) & ~31);
+  unsigned int i = 0;
+  unsigned int j = 0;
 
-  int x = pRect->x;
-  int y = pRect->y;
-  int w = pRect->w;
-  int h = pRect->h;
+  unsigned int x = pRect->x;
+  unsigned int y = pRect->y;
+  unsigned int w = pRect->w;
+  unsigned int h = pRect->h;
 
   // top
   for (i=y; i<y+h; i++)
@@ -277,17 +270,17 @@ GFX_Return gfx_drawrect_software(GFX_Handle handle,
                                 GFX_Buf *pBuf,
                                 unsigned char *pMemory,
                                 GFX_Rect *pRect,
-                                int color,
-                                int thickness)
+                                unsigned int color,
+                                unsigned int thickness)
 {
   if (NULL == handle) return GFX_Ret_Error;
   if (NULL == pBuf) return GFX_Ret_Error;
   if (NULL == pMemory) return GFX_Ret_Error;
   if (NULL == pRect) return GFX_Ret_Error;
 
-  GFX_INFO("handle=%p pBuf(fd:%d format:%d ion:%d size:(%d %d)) pMemory(%p) pRect(%d %d %d %d) color=%x thickness=%d",
+  GFX_INFO("handle=%p pBuf(fd:%d format:%d plane_number:%d size:(%d %d)) pMemory(%p) pRect(%d %d %d %d) color=%x thickness=%d",
     handle,
-    pBuf->fd, pBuf->format, pBuf->is_ionbuf, pBuf->size.w, pBuf->size.h, pMemory,
+    pBuf->fd[0], pBuf->format, pBuf->plane_number, pBuf->size.w, pBuf->size.h, pMemory,
     pRect->x, pRect->y, pRect->w, pRect->h, color, thickness);
 
   if (GFX_Ret_OK != gfx_check_buf_rect(pBuf, pRect))
@@ -301,14 +294,14 @@ GFX_Return gfx_drawrect_software(GFX_Handle handle,
     return GFX_Ret_OK;
   }
 
-  int pitch = (((pBuf->size.w * 4) + 31) & ~31);
-  int i = 0;
-  int j = 0;
+  unsigned int pitch = (((pBuf->size.w * 4) + 31) & ~31);
+  unsigned int i = 0;
+  unsigned int j = 0;
 
-  int x = pRect->x;
-  int y = pRect->y;
-  int w = pRect->w;
-  int h = pRect->h;
+  unsigned int x = pRect->x;
+  unsigned int y = pRect->y;
+  unsigned int w = pRect->w;
+  unsigned int h = pRect->h;
 
   // top
   for (i=y; i<y+thickness; i++)
@@ -368,18 +361,18 @@ GFX_Return gfx_blend(GFX_Handle handle,
   if (NULL == pOutBuf) return GFX_Ret_Error;
   if (NULL == pOutRect) return GFX_Ret_Error;
   gfx_info *info = (gfx_info *)handle;
-  aml_ge2d_info_t *pge2dinfo = &info->ge2d.ge2dinfo;
+  aml_ge2d_info_t *pInfoinfo = &info->ge2d.ge2dinfo;
 
   GFX_INFO("Enter handle=%p "\
-    "pBottomBuf(fd:%d format:%d ion:%d size:(%d %d)) pBottomRect(%d %d %d %d) "\
-    "pTopBuf(fd:%d format:%d ion:%d size:(%d %d)) pTopRect(%d %d %d %d) "\
-    "pOutBuf(fd:%d format:%d ion:%d size:(%d %d)) pOutRect(%d %d %d %d) alpha=%d",
+    "pBottomBuf(fd:%d format:%d plane_number:%d size:(%d %d)) pBottomRect(%d %d %d %d) "\
+    "pTopBuf(fd:%d format:%d plane_number:%d size:(%d %d)) pTopRect(%d %d %d %d) "\
+    "pOutBuf(fd:%d format:%d plane_number:%d size:(%d %d)) pOutRect(%d %d %d %d) alpha=%d",
     handle,
-    pBottomBuf->fd, pBottomBuf->format, pBottomBuf->is_ionbuf, pBottomBuf->size.w, pBottomBuf->size.h,
+    pBottomBuf->fd[0], pBottomBuf->format, pBottomBuf->plane_number, pBottomBuf->size.w, pBottomBuf->size.h,
     pBottomRect->x, pBottomRect->y, pBottomRect->w, pBottomRect->h,
-    pTopBuf->fd, pTopBuf->format, pTopBuf->is_ionbuf, pTopBuf->size.w, pTopBuf->size.h,
+    pTopBuf->fd[0], pTopBuf->format, pTopBuf->plane_number, pTopBuf->size.w, pTopBuf->size.h,
     pTopRect->x, pTopRect->y, pTopRect->w, pTopRect->h,
-    pOutBuf->fd, pOutBuf->format, pOutBuf->is_ionbuf, pOutBuf->size.w, pOutBuf->size.h,
+    pOutBuf->fd[0], pOutBuf->format, pOutBuf->plane_number, pOutBuf->size.w, pOutBuf->size.h,
     pOutRect->x, pOutRect->y, pOutRect->w, pOutRect->h, alpha);
 
   if (GFX_Ret_OK != gfx_check_buf_rect(pBottomBuf, pBottomRect))
@@ -396,34 +389,28 @@ GFX_Return gfx_blend(GFX_Handle handle,
   }
 
   // clear ge2d structure
-  gfx_clear_ge2d_info(pge2dinfo);
+  gfx_clear_ge2d_info(pInfoinfo);
 
   // do blend
   // bottom buffer
-  gfx_fill_params(pBottomBuf, pBottomRect, &pge2dinfo->src_info[0]);
-  pge2dinfo->src_info[0].layer_mode = LAYER_MODE_PREMULTIPLIED;
-  pge2dinfo->src_info[0].plane_alpha = 0xFF;
-  pge2dinfo->src_info[0].plane_number = 1;
-  pge2dinfo->src_info[0].memtype = GE2D_CANVAS_ALLOC;
+  gfx_fill_params(pBottomBuf, pBottomRect, &pInfoinfo->src_info[0]);
+  pInfoinfo->src_info[0].layer_mode = LAYER_MODE_PREMULTIPLIED;
+  pInfoinfo->src_info[0].plane_alpha = 0xFF;
 
   // top buffer
-  gfx_fill_params(pTopBuf, pTopRect, &pge2dinfo->src_info[1]);
-  pge2dinfo->src_info[1].layer_mode = LAYER_MODE_COVERAGE;
-  pge2dinfo->src_info[1].plane_alpha = alpha;  // top view, blending
-  pge2dinfo->src_info[1].plane_number = 1;
-  pge2dinfo->src_info[1].memtype = GE2D_CANVAS_ALLOC;
+  gfx_fill_params(pTopBuf, pTopRect, &pInfoinfo->src_info[1]);
+  pInfoinfo->src_info[1].layer_mode = LAYER_MODE_COVERAGE;
+  pInfoinfo->src_info[1].plane_alpha = alpha;  // top view, blending
 
   // destination buffer
-  gfx_fill_params(pOutBuf, pOutRect, &pge2dinfo->dst_info);
-  pge2dinfo->dst_info.memtype = GE2D_CANVAS_ALLOC;
-  pge2dinfo->dst_info.plane_number = 1;
+  gfx_fill_params(pOutBuf, pOutRect, &pInfoinfo->dst_info);
 
-  pge2dinfo->ge2d_op = AML_GE2D_BLEND;
-  pge2dinfo->blend_mode = BLEND_MODE_PREMULTIPLIED;
+  pInfoinfo->ge2d_op = AML_GE2D_BLEND;
+  pInfoinfo->blend_mode = BLEND_MODE_PREMULTIPLIED;
 
-  if (gfx_do_ge2d_cmd(pge2dinfo, sync) < 0) {
+  if (gfx_do_ge2d_cmd(pInfoinfo, sync) < 0) {
     GFX_ERROR("gfx_do_ge2d_cmd failed");
-    gfx_print_params(pge2dinfo);
+    gfx_print_params(pInfoinfo);
     return GFX_Ret_Error;
   }
 
@@ -444,15 +431,15 @@ GFX_Return gfx_stretchblit(GFX_Handle handle,
   if (NULL == pOutBuf) return GFX_Ret_Error;
   if (NULL == pOutRect) return GFX_Ret_Error;
   gfx_info *info = (gfx_info *)handle;
-  aml_ge2d_info_t *pge2dinfo = &info->ge2d.ge2dinfo;
+  aml_ge2d_info_t *pInfoinfo = &info->ge2d.ge2dinfo;
 
   GFX_INFO("Enter handle=%p "\
-    "pInBuf(fd:%d format:%d ion:%d size:(%d %d)) pInRect(%d %d %d %d) "\
-    "pOutBuf(fd:%d format:%d ion:%d size:(%d %d)) pOutRect(%d %d %d %d)",
+    "pInBuf(fd:%d format:%d plane_number:%d size:(%d %d)) pInRect(%d %d %d %d) "\
+    "pOutBuf(fd:%d format:%d plane_number:%d size:(%d %d)) pOutRect(%d %d %d %d)",
     handle,
-    pInBuf->fd, pInBuf->format, pInBuf->is_ionbuf, pInBuf->size.w, pInBuf->size.h,
+    pInBuf->fd[0], pInBuf->format, pInBuf->plane_number, pInBuf->size.w, pInBuf->size.h,
     pInRect->x, pInRect->y, pInRect->w, pInRect->h,
-    pOutBuf->fd, pOutBuf->format, pOutBuf->is_ionbuf, pOutBuf->size.w, pOutBuf->size.h,
+    pOutBuf->fd[0], pOutBuf->format, pOutBuf->plane_number, pOutBuf->size.w, pOutBuf->size.h,
     pOutRect->x, pOutRect->y, pOutRect->w, pOutRect->h);
 
   if (GFX_Ret_OK != gfx_check_buf_rect(pInBuf, pInRect))
@@ -465,39 +452,33 @@ GFX_Return gfx_stretchblit(GFX_Handle handle,
   }
 
   // clear ge2d structure
-  gfx_clear_ge2d_info(pge2dinfo);
+  gfx_clear_ge2d_info(pInfoinfo);
 
   // do stretchblit
-  gfx_fill_params(pInBuf, pInRect, &pge2dinfo->src_info[0]);
-  pge2dinfo->src_info[0].memtype = GE2D_CANVAS_ALLOC;
-  pge2dinfo->src_info[0].layer_mode = 0;
-  pge2dinfo->src_info[0].plane_alpha = 0xff;
-  pge2dinfo->src_info[0].plane_number = 1;
+  gfx_fill_params(pInBuf, pInRect, &pInfoinfo->src_info[0]);
+  pInfoinfo->src_info[0].layer_mode = 0;
+  pInfoinfo->src_info[0].plane_alpha = 0xff;
 
-  pge2dinfo->src_info[1].canvas_w = 0;
-  pge2dinfo->src_info[1].canvas_h = 0;
-  pge2dinfo->src_info[1].format = -1;
-  pge2dinfo->src_info[1].memtype = GE2D_CANVAS_TYPE_INVALID;
-  pge2dinfo->src_info[1].shared_fd[0] = -1;
-  pge2dinfo->src_info[1].mem_alloc_type = AML_GE2D_MEM_ION;
-  pge2dinfo->src_info[1].plane_number = 1;
+  pInfoinfo->src_info[1].canvas_w = 0;
+  pInfoinfo->src_info[1].canvas_h = 0;
+  pInfoinfo->src_info[1].format = -1;
+  pInfoinfo->src_info[1].shared_fd[0] = -1;
+  pInfoinfo->src_info[1].mem_alloc_type = AML_GE2D_MEM_DMABUF;
 
-  gfx_fill_params(pOutBuf, pOutRect, &pge2dinfo->dst_info);
-  pge2dinfo->dst_info.rotation = gfx_convert_video_rotation(rotation);
-  pge2dinfo->dst_info.memtype = GE2D_CANVAS_ALLOC;
-  pge2dinfo->dst_info.plane_number = 1;
+  gfx_fill_params(pOutBuf, pOutRect, &pInfoinfo->dst_info);
+  pInfoinfo->dst_info.rotation = gfx_convert_video_rotation(rotation);
 
-  pge2dinfo->offset = 0;
-  pge2dinfo->ge2d_op = AML_GE2D_STRETCHBLIT;
-  pge2dinfo->blend_mode = BLEND_MODE_PREMULTIPLIED;
+  pInfoinfo->offset = 0;
+  pInfoinfo->ge2d_op = AML_GE2D_STRETCHBLIT;
+  pInfoinfo->blend_mode = BLEND_MODE_PREMULTIPLIED;
 
-  pge2dinfo->color = 0;
-  pge2dinfo->gl_alpha = GFX_DEFAULT_ALPHA;
-  pge2dinfo->const_color = 0;
+  pInfoinfo->color = 0;
+  pInfoinfo->gl_alpha = GFX_DEFAULT_ALPHA;
+  pInfoinfo->const_color = 0;
 
-  if (gfx_do_ge2d_cmd(pge2dinfo, sync) < 0) {
+  if (gfx_do_ge2d_cmd(pInfoinfo, sync) < 0) {
     GFX_ERROR("gfx_do_ge2d_cmd failed");
-    gfx_print_params(pge2dinfo);
+    gfx_print_params(pInfoinfo);
     return GFX_Ret_Error;
   }
 

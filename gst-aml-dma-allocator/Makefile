@@ -1,17 +1,17 @@
 OBJ = *.c
 
-TARGET = libgst-aml-imgproc.so
+TARGET = libgst-aml-dma-allocator.so
 
 all: $(TARGET)
 
 CFLAGS = $(GST_CFLAGS) -Wall -Wextra -fPIC -Os
 CFLAGS += $(shell $(PKG_CONFIG) --cflags gstreamer-1.0 gstreamer-base-1.0 gstreamer-allocators-1.0 gstreamer-video-1.0)
-LDFLAGS += $(shell $(PKG_CONFIG) --libs -Os gstreamer-1.0 gstreamer-base-1.0 gstreamer-allocators-1.0 gstreamer-video-1.0)
-
-LDFLAGS += -L$(STAGING_DIR)/usr/lib/ -lge2d
 CFLAGS += \
 	-I inc/ \
 	-I$(STAGING_DIR)/usr/include/
+
+LDFLAGS = $(GST_PLUGIN_LDFLAGS) $(shell $(PKG_CONFIG) --libs -Os gstreamer-1.0 gstreamer-base-1.0 gstreamer-allocators-1.0 gstreamer-video-1.0)
+LDFLAGS += -L$(STAGING_DIR)/usr/lib/ -ldma-allocator
 
 
 $(TARGET): $(OBJ)

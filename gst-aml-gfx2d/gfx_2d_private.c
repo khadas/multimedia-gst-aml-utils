@@ -67,7 +67,12 @@ int gfx_convert_video_rotation(GfxAmlRotation rotation) {
 void gfx_fill_params(GFX_Buf *pBuf,
                         GFX_Rect *pRect,
                         buffer_info_t *info) {
-  info->shared_fd[0] = pBuf->fd;
+  info->plane_number = pBuf->plane_number;
+  for (int i=0; i<info->plane_number; i++)
+  {
+    info->shared_fd[i] = pBuf->fd[i];
+  }
+
   info->canvas_w = pBuf->size.w;
   info->canvas_h = pBuf->size.h;
   info->rect.x = pRect->x;
@@ -75,8 +80,8 @@ void gfx_fill_params(GFX_Buf *pBuf,
   info->rect.w = pRect->w;
   info->rect.h = pRect->h;
   info->format = pBuf->format;
-
-  info->mem_alloc_type =  pBuf->is_ionbuf ? AML_GE2D_MEM_ION : AML_GE2D_MEM_DMABUF;
+  info->memtype = GE2D_CANVAS_ALLOC;
+  info->mem_alloc_type = AML_GE2D_MEM_DMABUF;
 }
 
 
@@ -99,8 +104,8 @@ void gfx_clear_ge2d_info(aml_ge2d_info_t *pge2dinfo) {
 GFX_Return gfx_check_buf_rect(GFX_Buf *pBuf, GFX_Rect *pRect) {
   if (pRect->x >= pBuf->size.w || pRect->y >= pBuf->size.h)
   {
-    GFX_ERROR("invalid parameters,pBuf(fd:%d format:%d ion:%d size:(%d %d)) pRect(%d %d %d %d)",
-      pBuf->fd, pBuf->format, pBuf->is_ionbuf, pBuf->size.w, pBuf->size.h,
+    GFX_ERROR("invalid parameters,pBuf(fd:%d format:%d plane_number:%d size:(%d %d)) pRect(%d %d %d %d)",
+      pBuf->fd[0], pBuf->format, pBuf->plane_number, pBuf->size.w, pBuf->size.h,
       pRect->x, pRect->y, pRect->w, pRect->h);
     return GFX_Ret_Error;
   }
