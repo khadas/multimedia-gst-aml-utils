@@ -53,7 +53,7 @@ gst_amldma_mem_init(char *name)
   GstAllocator *allocator = g_object_new(gst_amldma_allocator_get_type(), NULL);
   GstAmlDMAAllocator *self = GST_AMLDMA_ALLOCATOR (allocator);
 
-  dma_set_log_level(DMA_DEBUG_LEVEL_WARN, DMA_LOG_TERMINAL);
+  dma_set_log_level(DMA_DEBUG_LEVEL_INFO, DMA_LOG_TERMINAL);
 
   gint heap_fd = aml_dmabuf_heap_open (name);
   if (heap_fd < 0) {

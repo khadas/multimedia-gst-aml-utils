@@ -397,7 +397,6 @@ gst_aml_vconv_transform_frame (GstVideoFilter * filter,
     input_fd = gst_dmabuf_memory_get_fd (in_memory);
   } else {
     GST_INFO_OBJECT(self, "in_memory is not dma buffer");
-    gst_memory_unref (in_memory);
 
     // create new dma memory reference
     if (self->graphic.m_input.memory == NULL) {
@@ -427,7 +426,14 @@ gst_aml_vconv_transform_frame (GstVideoFilter * filter,
     unsigned char *pData = mapinfo.data;
     // unsigned char *pData = gst_amldmabuf_mmap(self->graphic.m_input.memory);
 
-    guint8 *pixels = GST_VIDEO_FRAME_PLANE_DATA (in_frame, 0);
+    // guint8 *pixels = GST_VIDEO_FRAME_PLANE_DATA (in_frame, 0);
+    GstMapInfo bufinfo;
+    if (!gst_buffer_map(in_frame->buffer, &bufinfo, GST_MAP_READ)) {
+      GST_ERROR_OBJECT(self, "failed to map memory(%p)", in_frame->buffer);
+      ret = GST_FLOW_ERROR;
+      goto transform_end;
+    }
+    guint8 *pixels = bufinfo.data;
 
     struct timeval st;
     struct timeval ed;
@@ -442,6 +448,7 @@ gst_aml_vconv_transform_frame (GstVideoFilter * filter,
     GST_INFO_OBJECT(self, "copy to DMA buf done, pData=%p, pixels=%p, in_info.size=%ld, time=%lf uS",
       pData, pixels, filter->in_info.size, time_total);
 
+    gst_buffer_unmap(in_frame->buffer, &bufinfo);
     gst_memory_unmap(self->graphic.m_input.memory, &mapinfo);
     // if (pData) gst_amldmabuf_munmap(pData, self->graphic.m_input.memory);
 
@@ -481,29 +488,6 @@ gst_aml_vconv_transform_frame (GstVideoFilter * filter,
 
   // sync command to HW, wait the executed complete
   gfx_sync_cmd(handle);
-
-  if (GST_VIDEO_INFO_FORMAT (&filter->out_info) == GST_VIDEO_FORMAT_I420) {
-    guint8 *pixels = GST_VIDEO_FRAME_PLANE_DATA (out_frame, 0);
-    gint size_y = filter->out_info.width * filter->out_info.height;
-    gint size_uv = size_y >> 1;
-    gint size_u = size_uv >> 1;
-
-    guint8 *pixel_uv_bak = g_new (guint8, size_uv);
-
-    guint8 *pixel_u = pixels + size_y;
-    guint8 *pixel_v = pixel_u + size_u;
-
-    // backup UV
-    memcpy (pixel_uv_bak, pixel_u, size_uv);
-
-    // YYYY UVUV -> YYYY UU VV
-    for (gint i = 0; i < size_u; i++) {
-      pixel_u[i] = pixel_uv_bak[i * 2];
-      pixel_v[i] = pixel_uv_bak[i * 2 + 1];
-    }
-
-    g_free (pixel_uv_bak);
-  }
 
 transform_end:
   if (out_memory) {
