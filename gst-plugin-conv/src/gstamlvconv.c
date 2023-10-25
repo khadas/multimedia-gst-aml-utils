@@ -642,7 +642,7 @@ gst_aml_vconv_open (GstBaseTransform *trans)
 
   // init DMA allocator
   if (self->dmabuf_alloc == NULL) {
-    self->dmabuf_alloc = gst_amldma_allocator_obtain("heap-gfx");
+    self->dmabuf_alloc = gst_amldma_allocator_obtain("heap-codecmm");
     if (self->dmabuf_alloc == NULL)
       return FALSE;
   }
