@@ -12,9 +12,8 @@ libgstamlvconv_la_CFLAGS = $(GST_CFLAGS) \
 
 
 libgstamlvconv_la_LIBADD = $(GST_LIBS) \
-		    	     		-lgst-aml-dma-allocator \
-		    	     		-lgst-aml-gfx2d \
-		    	     		-lge2d
+    	     		-lgst-aml-dma-allocator \
+    	     		-lgst-aml-gfx2d
 
 libgstamlvconv_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS) -Os
 libgstamlvconv_la_LIBTOOLFLAGS = --tag=disable-static

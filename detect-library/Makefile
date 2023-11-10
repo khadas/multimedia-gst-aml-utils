@@ -1,37 +1,45 @@
-OBJ = *.c *.cpp
-
 TARGET = libdetect-library.so
+OUT_DIR ?= .
+
+SRCS=$(wildcard *.cpp *.cc *.c)
 
 all: $(TARGET)
 
 CXXFLAGS+=-std=c++14 -Wall -Wextra -fPIC -Os
 CFLAGS = -Wall -Wextra -fPIC -Os
-LDFLAGS +=  -L$(STAGING_DIR)/usr/lib/ -Wall -Wextra -fPIC -Os -lstdc++ -lm -lpthread -lnnsdk
-
-LDFLAGS +=  -L/lib/lib64
+LDFLAGS +=  -Llib/lib64
+LDFLAGS +=  -L$(STAGING_DIR)/usr/lib/ -Wall -Wextra -fPIC -Os -lstdc++ -lm -lpthread -lnnsdk -lnndemo
 
 CFLAGS += \
 	-I inc/ \
 	-I$(STAGING_DIR)/usr/include/
 
-$(info "the value of CFLAGS is$(CFLAGS)")
-$(info "the value of LDFLAGS is$(LDFLAGS)")
-$(info "the value of STAGING_DIR is$(STAGING_DIR)")
-$(info "the value of TARGET_DIR is$(TARGET_DIR)")
+LDFLAGS += -L$(STAGING_DIR)/usr/lib/ \
+			-L$(OUT_DIR)/$(OBJDIR)
 
-$(TARGET): $(OBJ)
-	$(CXX) $(TARGET_CFLAGS) $(CFLAGS) $(CXXFLAGS)  -D_FILE_OFFSET_BITS=64 -Wall -I$(STAGING_DIR)/usr/include/ -L$(STAGING_DIR)/usr/lib $(LDFLAGS) $(OBJ) -shared -fPIC -o $@
+$(info "TARGET_CFLAGS : $(TARGET_CFLAGS)")
+$(info "CXXFLAGS : $(CXXFLAGS)")
+$(info "CFLAGS : $(CFLAGS)")
+$(info "LDFLAGS : $(LDFLAGS)")
+$(info "OUT_DIR : $(OUT_DIR)")
+$(info "STAGING_DIR : $(STAGING_DIR)")
+$(info "TARGET_DIR : $(TARGET_DIR)")
+
+
+$(TARGET): $(SRCS)
+	@echo " [TARGET] $(TARGET)"
+	@echo " [SRCS] $(SRCS)"
+	$(CC) $(TARGET_CFLAGS) $(CFLAGS) -D_FILE_OFFSET_BITS=64 -Wall $(SRCS) $(LDFLAGS) -shared -fPIC -o $(OUT_DIR)/$@
+
 
 .PHONY: clean
 
 clean:
-	rm -f *.o $(TARGET) $(TEST)
+	rm -f *.o $(OUT_DIR)/$(TARGET) $(OUT_DIR)/$(TEST)
 
 install:
-	cp inc/*.h $(STAGING_DIR)/usr/include/
-	cp $(TARGET) $(TARGET_DIR)/usr/lib/
-	rm $(TARGET)
-	cp lib/lib64/*.so $(TARGET_DIR)/usr/lib/
-	cp -rf nn_data/ $(TARGET_DIR)/etc/
-
+	install -m 644 inc/*.h $(STAGING_DIR)/usr/include
+	install -m 644 lib/lib64/*.so $(TARGET_DIR)/usr/lib
+	install -m 644 nn_data/ $(TARGET_DIR)/etc
+	install -m 644 $(OUT_DIR)/$(TARGET) $(TARGET_DIR)/usr/lib
 

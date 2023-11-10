@@ -13,9 +13,8 @@ libgstamloverlay_la_CFLAGS = $(GST_CFLAGS) \
 			     			-I$(STAGING_DIR)/usr/include/
 
 libgstamloverlay_la_LIBADD = $(GST_LIBS) \
- 		    	     		-lgst-aml-dma-allocator \
- 		    	     		-lgst-aml-gfx2d \
- 		    	     		-lge2d
+    	     		-lgst-aml-dma-allocator \
+    	     		-lgst-aml-gfx2d
 
 libgstamloverlay_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS) -Os
 libgstamloverlay_la_LIBTOOLFLAGS = --tag=disable-static

@@ -16,9 +16,7 @@ libgstamlnn_la_LIBADD = $(GST_LIBS) \
 			-lgst-aml-dma-allocator \
 			-lgst-aml-gfx2d \
 			-ldetect-library \
-			-lge2d \
-			-lnnsdk \
-			-lnndemo
+			-lnnsdk
 
 libgstamlnn_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS) -Wl,--as-needed -Os
 libgstamlnn_la_LIBTOOLFLAGS = --tag=disable-static

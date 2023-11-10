@@ -59,9 +59,9 @@ void dma_LogMsg(dma_debug_level_t level, const char *fmt, ...)
     char arg_buffer[DEBUG_BUFFER_LEN] = {0};
     va_list arg;
 
-    // if (_check_log_level(level) == 0) {
-    //     return ;
-    // }
+    if (_check_log_level(level) == 0) {
+        return ;
+    }
 
     va_start(arg, fmt);
     vsnprintf(arg_buffer, DEBUG_BUFFER_LEN, fmt, arg);
