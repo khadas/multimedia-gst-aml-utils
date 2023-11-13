@@ -48,12 +48,16 @@
 #include <gst/controller/controller.h>
 #include <gst/allocators/gstdmabuf.h>
 #include <gst/allocators/gstamldmaallocator.h>
+#include <gst/gstdrmbufferpool.h>
 
 #include "gstamlvconv.h"
+#include "dma_allocator.h"
 
 
 
 #define GST_TYPE_AMLVCONV_ROTATION (GST_TYPE_AML_ROTATION(vconv))
+#define DRMBP_EXTRA_BUF_SIZE_FOR_DISPLAY 1
+#define DRMBP_LIMIT_MAX_BUFSIZE_TO_BUFSIZE 1
 
 
 GST_DEBUG_CATEGORY_STATIC (gst_aml_vconv_debug);
@@ -166,7 +170,7 @@ gst_aml_vconv_caps_remove_format_info (GstCaps * caps)
             GST_CAPS_FEATURES_MEMORY_SYSTEM_MEMORY))
       gst_structure_remove_fields (st,
           "format", "colorimetry", "chroma-site",
-          "width", "height",
+          "width", "height","framerate",
           NULL);
 
     gst_caps_append_structure_full (res, st, gst_caps_features_copy (f));
@@ -179,9 +183,16 @@ static GstCaps *
 gst_aml_vconv_transform_caps (GstBaseTransform * trans,
     GstPadDirection direction, GstCaps * caps, GstCaps * filter)
 {
-  (void)direction;
   GstCaps *tmp, *tmp2;
   GstCaps *result;
+  GstStructure *structure;
+  GstAmlVConv *self = GST_AMLVCONV (trans);
+
+  gint rate_numerator, rate_denominator;
+
+  GST_DEBUG_OBJECT (trans, "setcaps called in: %" GST_PTR_FORMAT, caps);
+
+  structure = gst_caps_get_structure (caps, 0);
 
   /* Get all possible caps that we can transform to */
   tmp = gst_aml_vconv_caps_remove_format_info (caps);
@@ -194,9 +205,28 @@ gst_aml_vconv_transform_caps (GstBaseTransform * trans,
 
   result = tmp;
 
-  GST_INFO_OBJECT (trans, "transformed %" GST_PTR_FORMAT " into %"
+  if (GST_PAD_SINK == direction) {
+      (void)gst_structure_get_fraction (structure, "framerate", &rate_numerator, &rate_denominator);
+      GST_INFO_OBJECT (trans, "GST_PAD_SRC: transformed %" GST_PTR_FORMAT " into %"
       GST_PTR_FORMAT, caps, result);
-
+      if (0 != rate_numerator) {
+          self->videorate.from_rate_numerator=rate_numerator;
+          self->videorate.from_rate_denominator=rate_denominator;
+      }
+  }
+  else if(GST_PAD_SRC == direction) {
+      (void)gst_structure_get_fraction (structure, "framerate", &rate_numerator, &rate_denominator);
+      GST_INFO_OBJECT (trans, "GST_PAD_SINK: transformed %" GST_PTR_FORMAT " into %"
+      GST_PTR_FORMAT, caps, result);
+      if (0 != rate_numerator) {
+        self->videorate.to_rate_numerator=rate_numerator;
+        self->videorate.to_rate_denominator=rate_denominator;
+      }
+  }
+  else {
+      GST_INFO_OBJECT (trans, "GST_PAD_UNKNOWN: transformed %" GST_PTR_FORMAT " into %"
+      GST_PTR_FORMAT, caps, result);
+  }
   return result;
 }
 
@@ -211,6 +241,8 @@ static void gst_aml_vconv_set_passthrough(GstAmlVConv *vconv) {
   if (in_info->width == out_info->width &&
       in_info->height == out_info->height &&
       GST_VIDEO_INFO_FORMAT(in_info) == GST_VIDEO_INFO_FORMAT(out_info) &&
+      in_info->fps_n == out_info->fps_n &&
+      in_info->fps_d == out_info->fps_d &&
       vconv->graphic.m_rotation == GFX_AML_ROTATION_0) {
     gst_base_transform_set_passthrough(GST_BASE_TRANSFORM(vconv), TRUE);
   } else {
@@ -219,11 +251,11 @@ static void gst_aml_vconv_set_passthrough(GstAmlVConv *vconv) {
 
   GST_INFO_OBJECT(
       vconv,
-      "from=%dx%d (format=%d), size %" G_GSIZE_FORMAT
-      " -> to=%dx%d (format=%d), size %" G_GSIZE_FORMAT
+      "from=%dx%d (format=%d),framerate=%d/%d, size %" G_GSIZE_FORMAT
+      " -> to=%dx%d (format=%d),framerate=%d/%d, size %" G_GSIZE_FORMAT
       ", rotation=%d",
-      in_info->width, in_info->height, GST_VIDEO_INFO_FORMAT(in_info), in_info->size,
-      out_info->width, out_info->height, GST_VIDEO_INFO_FORMAT(out_info), out_info->size,
+      in_info->width, in_info->height, GST_VIDEO_INFO_FORMAT(in_info), in_info->fps_n, in_info->fps_d, in_info->size,
+      out_info->width, out_info->height, GST_VIDEO_INFO_FORMAT(out_info), out_info->fps_n, out_info->fps_d, out_info->size,
       vconv->graphic.m_rotation);
 }
 
@@ -232,6 +264,7 @@ static gboolean gst_aml_vconv_set_info(GstVideoFilter *filter, GstCaps *in,
                                        GstVideoInfo *out_info) {
   (void)in;
   (void)out;
+  GstStructure *structure;
   GstAmlVConv *vconv = GST_AMLVCONV(filter);
 
   memcpy(&vconv->in_info, in_info, sizeof(GstVideoInfo));
@@ -242,7 +275,6 @@ static gboolean gst_aml_vconv_set_info(GstVideoFilter *filter, GstCaps *in,
 
   return TRUE;
 }
-
 
 // 0, no check, >0, check memory overwrite (e.g. 100)
 #define CHECK_MEM_OVERWRITE  0
@@ -331,6 +363,7 @@ gst_aml_vconv_prepare_output_buffer (GstBaseTransform * trans,
   GstMemory *memory =
       gst_allocator_alloc(self->dmabuf_alloc, filter->out_info.size, NULL);
   gst_buffer_insert_memory(*outbuf, -1, memory);
+  LOG_Default("%s add filter->out_info.size:%d", __FUNCTION__, filter->out_info.size);
 
   /* copy the metadata */
   if (bclass->copy_metadata)
@@ -362,8 +395,21 @@ gst_aml_vconv_transform_frame (GstVideoFilter * filter,
   GstFlowReturn ret = GST_FLOW_OK;
   gint input_fd;
   gint output_fd;
+  double divisor;
+  double remainder;
 
   GST_INFO_OBJECT(self, "process begin");
+
+  GST_INFO_OBJECT(self, "self->videorate.from_rate_numerator: %d,self->videorate.from_rate_denominator: %d",self->videorate.from_rate_numerator,self->videorate.from_rate_denominator);
+  GST_INFO_OBJECT(self, "self->videorate.to_rate_numerator: %d,self->videorate.to_rate_denominator: %d",self->videorate.to_rate_numerator,self->videorate.to_rate_denominator);
+  self->videorate.out_frame_count = self->videorate.out_frame_count + 1;
+  divisor = (double)(self->videorate.from_rate_numerator / self->videorate.from_rate_denominator) / (double)(self->videorate.to_rate_numerator / self->videorate.to_rate_denominator);
+  remainder = fmod((double)self->videorate.out_frame_count ,divisor);
+  GST_INFO_OBJECT(self, "divisor: %lf,remainder: %lf,GlobalFrameCount :%lf",divisor,remainder,self->videorate.out_frame_count);
+  if (1.0 <= remainder) {
+      GST_INFO_OBJECT(self, "drop frame");
+      return GST_BASE_TRANSFORM_FLOW_DROPPED;
+  }
 
   // output buffer
   GFX_Buf outBuf;
@@ -387,14 +433,45 @@ gst_aml_vconv_transform_frame (GstVideoFilter * filter,
   // input buffer
   GFX_Buf inBuf;
   inBuf.format = gfx_convert_video_format(GST_VIDEO_INFO_FORMAT(&filter->in_info));
-  inBuf.plane_number = 1;
   inBuf.size.w = filter->in_info.width;
   inBuf.size.h = filter->in_info.height;
+  inBuf.plane_number = gst_buffer_n_memory (in_frame->buffer);
 
   GstMemory *in_memory = gst_buffer_get_memory (in_frame->buffer, 0);
   if (gst_is_dmabuf_memory (in_memory)) {
     GST_INFO_OBJECT(self, "in_memory is dma buffer");
     input_fd = gst_dmabuf_memory_get_fd (in_memory);
+    if (input_fd < 0) {
+      GST_ERROR_OBJECT (self, "failed to obtain the input memory fd: %d", input_fd);
+      ret = GST_FLOW_ERROR;
+      goto transform_end;
+    }
+    LOG_Default("%s input_fd:%d", __FUNCTION__, input_fd);
+    inBuf.fd[0] = input_fd;
+
+    // for multiple plane
+    if (inBuf.plane_number >= 2) {
+      GstMemory *in_memory_1 = gst_buffer_get_memory (in_frame->buffer, 1);
+      input_fd = gst_dmabuf_memory_get_fd (in_memory_1);
+      if (input_fd < 0) {
+        GST_ERROR_OBJECT (self, "failed to obtain the input memory fd: %d", input_fd);
+        ret = GST_FLOW_ERROR;
+        goto transform_end;
+      }
+      LOG_Default("%s input_fd:%d", __FUNCTION__, input_fd);
+      inBuf.fd[1] = input_fd;
+    }
+    if (inBuf.plane_number >= 3) {
+      GstMemory *in_memory_2 = gst_buffer_get_memory (in_frame->buffer, 2);
+      input_fd = gst_dmabuf_memory_get_fd (in_memory_2);
+      if (input_fd < 0) {
+        GST_ERROR_OBJECT (self, "failed to obtain the input memory fd: %d", input_fd);
+        ret = GST_FLOW_ERROR;
+        goto transform_end;
+      }
+      LOG_Default("%s input_fd:%d", __FUNCTION__, input_fd);
+      inBuf.fd[2] = input_fd;
+    }
   } else {
     GST_INFO_OBJECT(self, "in_memory is not dma buffer");
 
@@ -424,9 +501,6 @@ gst_aml_vconv_transform_frame (GstVideoFilter * filter,
       goto transform_end;
     }
     unsigned char *pData = mapinfo.data;
-    // unsigned char *pData = gst_amldmabuf_mmap(self->graphic.m_input.memory);
-
-    // guint8 *pixels = GST_VIDEO_FRAME_PLANE_DATA (in_frame, 0);
     GstMapInfo bufinfo;
     if (!gst_buffer_map(in_frame->buffer, &bufinfo, GST_MAP_READ)) {
       GST_ERROR_OBJECT(self, "failed to map memory(%p)", in_frame->buffer);
@@ -453,19 +527,18 @@ gst_aml_vconv_transform_frame (GstVideoFilter * filter,
     // if (pData) gst_amldmabuf_munmap(pData, self->graphic.m_input.memory);
 
     input_fd = self->graphic.m_input.fd;
+    if (input_fd < 0) {
+        GST_ERROR_OBJECT (self, "failed to obtain the input memory fd: %d", input_fd);
+        ret = GST_FLOW_ERROR;
+        goto transform_end;
+    }
+    inBuf.fd[0] = input_fd;
 
     if (CHECK_MEM_OVERWRITE>0) {
       // fleet temp for checking memory overwrite
       gst_aml_memory_overwrite_check_magic(self, self->graphic.m_input.memory, self->graphic.m_input.size);
     }
   }
-
-  if (input_fd < 0) {
-    GST_ERROR_OBJECT (self, "failed to obtain the input memory fd");
-    ret = GST_FLOW_ERROR;
-    goto transform_end;
-  }
-  inBuf.fd[0] = input_fd;
 
   GFX_Rect inRect, outRect;
   inRect.x = 0;
@@ -506,11 +579,15 @@ static gboolean
 gst_aml_vconv_propose_allocation (GstBaseTransform * trans,
     GstQuery * decide_query, GstQuery * query)
 {
+  GstAmlVConv *self = GST_AMLVCONV (trans);
   GstVideoInfo info;
   GstCaps *caps;
   guint size, min = 0, max = 0;
+  GstBufferPool *pool = NULL;
+  gboolean need_pool = FALSE;
 
-  gst_query_parse_allocation (query, &caps, NULL);
+  // gst_query_parse_allocation (query, &caps, NULL);
+  gst_query_parse_allocation(query, &caps, &need_pool);
 
   if (caps == NULL)
     return FALSE;
@@ -518,14 +595,20 @@ gst_aml_vconv_propose_allocation (GstBaseTransform * trans,
   if (!gst_video_info_from_caps (&info, caps))
     return FALSE;
 
-  gint n = gst_query_get_n_allocation_pools (query);
-  if (n > 0) {
-    gst_query_parse_nth_allocation_pool (query, 0, NULL, &size, &min, &max);
-    size = MAX (size, info.size);
-    gst_query_set_nth_allocation_pool (query, 0, NULL, size, 4, 6);
-  } else {
-    gst_query_add_allocation_pool (query, NULL, info.size, 4, 4);
-  }
+  GST_INFO_OBJECT(self, "need_pool: %d", need_pool);
+
+  if (need_pool) {
+        pool = gst_drm_bufferpool_new(FALSE, GST_DRM_BUFFERPOOL_TYPE_VIDEO_PLANE);
+        GST_INFO_OBJECT(self, "new gst_drm_bufferpool");
+    }
+
+  gst_query_add_allocation_pool(query, pool, info.size, DRMBP_EXTRA_BUF_SIZE_FOR_DISPLAY, DRMBP_LIMIT_MAX_BUFSIZE_TO_BUFSIZE);
+  GST_INFO_OBJECT(self, "info->size: %d", info.size);
+
+  if (pool)
+    g_object_unref(pool);
+
+  gst_query_add_allocation_meta (query, GST_VIDEO_META_API_TYPE, NULL);
 
   return GST_BASE_TRANSFORM_CLASS (parent_class)->propose_allocation (trans, decide_query, query);
 }

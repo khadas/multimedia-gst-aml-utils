@@ -435,9 +435,12 @@ GFX_Return gfx_stretchblit(GFX_Handle handle,
 
   GFX_INFO("Enter handle=%p "\
     "pInBuf(fd:%d format:%d plane_number:%d size:(%d %d)) pInRect(%d %d %d %d) "\
+    "pInBuf(fd:%d format:%d plane_number:%d size:(%d %d)) pInRect(%d %d %d %d) "\
     "pOutBuf(fd:%d format:%d plane_number:%d size:(%d %d)) pOutRect(%d %d %d %d)",
     handle,
     pInBuf->fd[0], pInBuf->format, pInBuf->plane_number, pInBuf->size.w, pInBuf->size.h,
+    pInRect->x, pInRect->y, pInRect->w, pInRect->h,
+    pInBuf->fd[1], pInBuf->format, pInBuf->plane_number, pInBuf->size.w, pInBuf->size.h,
     pInRect->x, pInRect->y, pInRect->w, pInRect->h,
     pOutBuf->fd[0], pOutBuf->format, pOutBuf->plane_number, pOutBuf->size.w, pOutBuf->size.h,
     pOutRect->x, pOutRect->y, pOutRect->w, pOutRect->h);

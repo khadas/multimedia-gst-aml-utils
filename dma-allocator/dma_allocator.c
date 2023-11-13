@@ -115,14 +115,14 @@ int aml_dmabuf_heap_free(int dmabuf_fd)
 
 // DMA_BUF_SYNC_START
 // DMA_BUF_SYNC_END
-// int aml_dmabuf_sync(int dmabuf_fd, int start_stop)
-// {
-// 	struct dma_buf_sync sync = {
-// 		.flags = start_stop | DMA_BUF_SYNC_RW,
-// 	};
+int aml_dmabuf_sync(int dmabuf_fd, int start_stop)
+{
+	struct dma_buf_sync sync = {
+		.flags = start_stop | DMA_BUF_SYNC_RW,
+	};
 
-// 	LOGI("dmabuf_fd=%d, start_stop=%d", dmabuf_fd, start_stop);
+	LOGI("dmabuf_fd=%d, start_stop=%d", dmabuf_fd, start_stop);
 
-// 	return ioctl(dmabuf_fd, DMA_BUF_IOCTL_SYNC, &sync);
-// }
+	return ioctl(dmabuf_fd, DMA_BUF_IOCTL_SYNC, &sync);
+}
 

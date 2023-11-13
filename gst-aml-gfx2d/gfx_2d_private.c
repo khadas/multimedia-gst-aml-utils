@@ -25,9 +25,10 @@
  */
 #include <stdlib.h>
 #include "aml_ge2d.h"
-
+#include "dma_allocator.h"
 #include "gfx_2d.h"
 #include "gfx_2d_private.h"
+#include <linux/dma-buf.h>
 
 
 /*************************************************
@@ -201,13 +202,21 @@ GFX_Return gfx_do_ge2d_cmd(aml_ge2d_info_t *pge2dinfo, int sync) {
 
   if (-1 != pge2dinfo->src_info[0].shared_fd[0]) {
     if (pge2dinfo->src_info[0].mem_alloc_type == AML_GE2D_MEM_DMABUF) {
-      aml_ge2d_sync_for_device(pge2dinfo, 0);
+      aml_dmabuf_sync(pge2dinfo->src_info[0].shared_fd[0], DMA_BUF_SYNC_END);
+      GFX_INFO("sync pge2dinfo->src_info[0].shared_fd[0]=%d ",pge2dinfo->src_info[0].shared_fd[0]);
     }
   }
+
   if (-1 != pge2dinfo->src_info[1].shared_fd[0]) {
     if (pge2dinfo->src_info[1].mem_alloc_type == AML_GE2D_MEM_DMABUF) {
-      aml_ge2d_sync_for_device(pge2dinfo, 0);
+      aml_dmabuf_sync(pge2dinfo->src_info[1].shared_fd[0],DMA_BUF_SYNC_END);
+      GFX_INFO("sync pge2dinfo->src_info[1].shared_fd[0]=%d ",pge2dinfo->src_info[1].shared_fd[0]);
     }
+  }
+
+  if (pge2dinfo->dst_info.mem_alloc_type == AML_GE2D_MEM_DMABUF) {
+    aml_dmabuf_sync(pge2dinfo->dst_info.shared_fd[0],DMA_BUF_SYNC_END);
+    GFX_INFO("sync pge2dinfo->dst_info.shared_fd[0]=%d ",pge2dinfo->dst_info.shared_fd[0]);
   }
 
   if (1 == sync)  {
@@ -223,8 +232,23 @@ GFX_Return gfx_do_ge2d_cmd(aml_ge2d_info_t *pge2dinfo, int sync) {
     }
   }
 
+  if (-1 != pge2dinfo->src_info[0].shared_fd[0]) {
+    if (pge2dinfo->src_info[0].mem_alloc_type == AML_GE2D_MEM_DMABUF) {
+      aml_dmabuf_sync(pge2dinfo->src_info[0].shared_fd[0], DMA_BUF_SYNC_START);
+      GFX_INFO("sync pge2dinfo->src_info[0].shared_fd[0]=%d ",pge2dinfo->src_info[0].shared_fd[0]);
+    }
+  }
+
+  if (-1 != pge2dinfo->src_info[1].shared_fd[0]) {
+    if (pge2dinfo->src_info[1].mem_alloc_type == AML_GE2D_MEM_DMABUF) {
+      aml_dmabuf_sync(pge2dinfo->src_info[1].shared_fd[0],DMA_BUF_SYNC_START);
+      GFX_INFO("sync pge2dinfo->src_info[1].shared_fd[0]=%d ",pge2dinfo->src_info[1].shared_fd[0]);
+    }
+  }
+
   if (pge2dinfo->dst_info.mem_alloc_type == AML_GE2D_MEM_DMABUF) {
-    aml_ge2d_sync_for_cpu(pge2dinfo);
+    aml_dmabuf_sync(pge2dinfo->dst_info.shared_fd[0],DMA_BUF_SYNC_START);
+    GFX_INFO("sync pge2dinfo->dst_info.shared_fd[0]=%d ",pge2dinfo->dst_info.shared_fd[0]);
   }
 
   return GFX_Ret_OK;

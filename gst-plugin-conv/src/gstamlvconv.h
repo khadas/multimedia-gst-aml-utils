@@ -30,6 +30,7 @@
 #include <gst/gst.h>
 #include <gst/video/video.h>
 #include <gst/video/gstvideofilter.h>
+#include <math.h>
 
 #include "gfx_2d.h"
 #include "gst_ge2d.h"
@@ -98,6 +99,12 @@ struct _GstAmlVConv {
   gboolean is_info_set;
   GstVideoInfo in_info;
   GstVideoInfo out_info;
+
+  struct{
+    gint from_rate_numerator, from_rate_denominator;
+    gint to_rate_numerator, to_rate_denominator;
+    guint out_frame_count;      /* number of frames output since the beginning */
+  }videorate;
 
   /* properties */
 
