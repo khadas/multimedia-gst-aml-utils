@@ -305,7 +305,7 @@ int main(int argc, char *argv[]) {
         data->videoparser1 = gst_element_factory_make("h265parse", "h265parse-parser");
         src_caps = gst_caps_new_simple("video/x-h265",
                                         "stream-format", G_TYPE_STRING, "byte-stream",
-                                        "alignment",G_TYPE_STRING,"au",
+                                        "alignment",G_TYPE_STRING,"nal",
                                         //"width", G_TYPE_INT, 720,
                                         //"height", G_TYPE_INT, 420,
                                         // "framerate", GST_TYPE_FRACTION, param->src_framerate,
