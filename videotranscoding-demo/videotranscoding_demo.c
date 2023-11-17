@@ -112,11 +112,11 @@ void parseConfigFile(const char *filename, video_transcoding_param *param){
     //fscanf(file, "src_codec=%d\n", &param->src_codec);
     fscanf(file, "src_codec=%s\n", src_codec_value);
     param->src_codec = mapStringToCodec(src_codec_value);
-    fscanf(file, "src_framerate=%d/1\n,", &param->src_framerate);
+    fscanf(file, "src_framerate=%d\n,", &param->src_framerate);
     fscanf(file, "dst_size={%d, %d}\n", &param->dst_size.width, &param->dst_size.height);
     fscanf(file, "dst_codec=%s\n", dst_codec_value);
     param->dst_codec = mapStringToCodec(dst_codec_value);
-    fscanf(file, "dst_framerate=%d/1\n", &param->dst_framerate);
+    fscanf(file, "dst_framerate=%d\n", &param->dst_framerate);
     fscanf(file, "bitrate_kb=%d\n", &param->bitrate_kb);
     fscanf(file, "gop_size=%d\n", &param->gop_size);
 
@@ -211,18 +211,9 @@ exit:
   gst_object_unref (sink_pad);
 }
 
-int video_transcoding_pulldata_callback(HANDLE *handle, void *buffer, gint size){
+int video_transcoding_pulldata_callback(void *buffer, gint size){
   CustomData_App *data = (CustomData_App *)handle_app;
-  GstStateChangeReturn ret=GST_FLOW_OK;;
-  /* create a GstBuffer containing data */
-  //GstBuffer *mybuffer = gst_buffer_new_allocate(NULL, size, NULL);
-  //GstMapInfo map;
-  //gst_buffer_map(mybuffer, &map, GST_MAP_WRITE);
-
-  /* fill data into GstBuffer */
-  //memcpy(map.data, buffer, size);
-  //gst_buffer_unmap(mybuffer, &map);
-
+  GstStateChangeReturn ret=GST_FLOW_OK;
   if (NULL != buffer) {
     /* The only thing we do in this example is print a * to indicate a received buffer */
     g_print ("%s : ****** \n", __func__);
@@ -236,8 +227,17 @@ int video_transcoding_pulldata_callback(HANDLE *handle, void *buffer, gint size)
     printf("%s : write data func done\n", __func__);
     return 0;
   }
+  gst_element_send_event(data->app_source, gst_event_new_eos());
   return 0;
 }
+
+void send_eos_event (GstElement* appsink, HANDLE handle){
+    printf("%s we send eos enent to lib\n",__func__);
+    CustomData *data = (CustomData *)handle;
+    gst_element_send_event(data->app_source, gst_event_new_eos());
+    return;
+}
+
 
 
 int main(int argc, char *argv[]) {
@@ -263,35 +263,35 @@ int main(int argc, char *argv[]) {
     /* init the gstreamer library */
     gst_init(&argc, &argv);
 
-    data->pipeline = gst_pipeline_new("my-pipeline");
+    data->pipeline = gst_pipeline_new("demo-pipeline");
 
-    data->source = gst_element_factory_make("filesrc", "file-source");
+    data->source = gst_element_factory_make("filesrc", "demo-file-source");
     g_object_set(G_OBJECT(data->source), "location", argv[1], NULL);
 
-    data->demuxer = gst_element_factory_make("tsdemux", "ts-demuxer");
+    data->demuxer = gst_element_factory_make("tsdemux", "demo-ts-demuxer");
 
-    data->videoparser = gst_element_factory_make("mpegvideoparse", "mpegvideo-parser");
+    data->videoparser = gst_element_factory_make("mpegvideoparse", "demo-mpegvideo-parser");
 
     //data->videoparser1 = gst_element_factory_make("h264parse", "h264parse-parser");
 
-    data->video_queue = gst_element_factory_make ("queue", "video_queue");
+    data->video_queue = gst_element_factory_make ("queue", "demo-video_queue");
 
-    data->audio_queue = gst_element_factory_make ("queue", "audio_queue");
+    data->audio_queue = gst_element_factory_make ("queue", "demo-audio_queue");
 
-    data->sink = gst_element_factory_make("appsink", "my-sink");
+    data->sink = gst_element_factory_make("appsink", "demo-my-sink");
 
-    data->audioparser = gst_element_factory_make("ac3parse", "ac3audio-parser");
+    data->audioparser = gst_element_factory_make("ac3parse", "demo-ac3audio-parser");
 
-    data->muxer = gst_element_factory_make("mpegtsmux", "ts-muxer");
+    data->muxer = gst_element_factory_make("mpegtsmux", "demo-ts-muxer");
 
-    data->filesink = gst_element_factory_make("filesink", "my-filesink");
+    data->filesink = gst_element_factory_make("filesink", "demo-my-filesink");
     g_object_set(G_OBJECT(data->filesink), "location", "/data/test.ts", NULL);
-    data->app_source = gst_element_factory_make ("appsrc", "app_source_test");
+    data->app_source = gst_element_factory_make ("appsrc", "demo-app_source_test");
 
     switch (global_video_transcoding_param.dst_codec)
     {
     case H264:
-        data->videoparser1 = gst_element_factory_make("h264parse", "h264parse-parser");
+        data->videoparser1 = gst_element_factory_make("h264parse", "demo-h264parse-parser");
         src_caps = gst_caps_new_simple("video/x-h264",
                                     "stream-format", G_TYPE_STRING, "byte-stream",
                                         "alignment",G_TYPE_STRING,"au",
@@ -302,7 +302,7 @@ int main(int argc, char *argv[]) {
         break;
 
     case H265:
-        data->videoparser1 = gst_element_factory_make("h265parse", "h265parse-parser");
+        data->videoparser1 = gst_element_factory_make("h265parse", "demo-h265parse-parser");
         src_caps = gst_caps_new_simple("video/x-h265",
                                         "stream-format", G_TYPE_STRING, "byte-stream",
                                         "alignment",G_TYPE_STRING,"nal",
@@ -364,6 +364,9 @@ int main(int argc, char *argv[]) {
         gst_object_unref(data->pipeline);
         return -1;
     }
+    /* send eos event */
+    g_signal_connect(G_OBJECT(data->sink), "eos", G_CALLBACK(send_eos_event), handle);
+
 
     /* Set pipeline status to playing */
     ret = gst_element_set_state(data->pipeline, GST_STATE_PLAYING);
@@ -378,15 +381,19 @@ int main(int argc, char *argv[]) {
 
     /* main loop */
     bus = gst_element_get_bus(data->pipeline);
-    msg = gst_bus_poll(bus, GST_MESSAGE_EOS, GST_CLOCK_TIME_NONE);
-    gst_message_unref(msg);
+    msg = gst_bus_timed_pop_filtered(bus, GST_CLOCK_TIME_NONE, GST_MESSAGE_EOS);
+    //msg = gst_bus_poll(bus, GST_MESSAGE_EOS, GST_CLOCK_TIME_NONE);
+    //gst_message_unref(msg);
+
+    if (msg != NULL) {
+        printf("release the source demo to do\n");
+        video_transcoding_stop(handle);
+        video_transcoding_deinit(handle);
+    }
 
     /* release source */
     gst_element_set_state(data->pipeline, GST_STATE_NULL);
     gst_object_unref(data->pipeline);
-
-    video_transcoding_stop(handle);
-    video_transcoding_deinit(handle);
 
     return 0;
 }

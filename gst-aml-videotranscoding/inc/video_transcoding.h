@@ -48,7 +48,7 @@ typedef enum {
 
 //use gstreamer enum
 typedef void* HANDLE;
-typedef int (*video_transcoding_callback)(HANDLE *handle, void *buffer, gint size);
+typedef int (*video_transcoding_callback)(void *buffer, gint size);
 
 typedef struct _CustomData {
   GstElement *pipeline, *app_source, *v4l2_dec, *app_sink;

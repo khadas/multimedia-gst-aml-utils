@@ -43,6 +43,7 @@ GST_DEBUG_CATEGORY_STATIC(video_transcoding);
 static void *video_transcoding_workloop(HANDLE *handle);
 
 static GstFlowReturn appsink_pull_data_callback(GstElement *sink, CustomData *data );
+void send_eos_event_to_app (GstElement* sink, CustomData *data);
 
 HANDLE video_transcoding_init( video_transcoding_param *param, int argc, char **argv){
     GstCaps* src_caps = NULL;
@@ -84,54 +85,54 @@ HANDLE video_transcoding_init( video_transcoding_param *param, int argc, char **
     switch (param->src_codec)
     {
     case AV1:
-        data->v4l2_dec = gst_element_factory_make ("amlv4l2av1dec", "v4l2_av1_dec");
+        data->v4l2_dec = gst_element_factory_make ("amlv4l2av1dec", "transcoding-v4l2_av1_dec");
         break;
     case AVS2:
-        data->v4l2_dec = gst_element_factory_make ("amlv4l2avs2dec", "v4l2_avs2_dec");
+        data->v4l2_dec = gst_element_factory_make ("amlv4l2avs2dec", "transcoding-v4l2_avs2_dec");
         break;
     case AVS3:
-        data->v4l2_dec = gst_element_factory_make ("amlv4l2avs3dec", "v4l2_avs3_dec");
+        data->v4l2_dec = gst_element_factory_make ("amlv4l2avs3dec", "transcoding-v4l2_avs3_dec");
         break;
     case AVS:
-        data->v4l2_dec = gst_element_factory_make ("amlv4l2avsdec", "v4l2_avs_dec");
+        data->v4l2_dec = gst_element_factory_make ("amlv4l2avsdec", "transcoding-v4l2_avs_dec");
         break;
     case H264:
-        data->v4l2_dec = gst_element_factory_make ("amlv4l2h264dec", "v4l2_h264_dec");
+        data->v4l2_dec = gst_element_factory_make ("amlv4l2h264dec", "transcoding-v4l2_h264_dec");
         src_caps = gst_caps_new_simple("video/x-h264",
                                         "width", G_TYPE_INT, param->src_size.width,
                                         "height", G_TYPE_INT, param->src_size.height,
-                                        "framerate", GST_TYPE_FRACTION, param->src_framerate,
+                                        //"framerate", GST_TYPE_FRACTION, param->src_framerate,1,
                                         NULL);
         break;
     case H265:
-        data->v4l2_dec = gst_element_factory_make ("amlv4l2h265dec", "v4l2_h265_dec");
+        data->v4l2_dec = gst_element_factory_make ("amlv4l2h265dec", "transcoding-v4l2_h265_dec");
         src_caps = gst_caps_new_simple("video/x-h265",
                                         "width", G_TYPE_INT, param->src_size.width,
                                         "height", G_TYPE_INT, param->src_size.height,
-                                        "framerate", GST_TYPE_FRACTION, param->src_framerate,
+                                        //"framerate", GST_TYPE_FRACTION, param->src_framerate,1,
                                         NULL);
         break;
     case JPEG:
-        data->v4l2_dec = gst_element_factory_make ("amlv4l2jpegdec", "v4l2_jpeg_dec");
+        data->v4l2_dec = gst_element_factory_make ("amlv4l2jpegdec", "transcoding-v4l2_jpeg_dec");
         break;
     case MPEG4:
-        data->v4l2_dec = gst_element_factory_make ("amlv4l2mpeg4dec", "v4l2_mpeg4_dec");
+        data->v4l2_dec = gst_element_factory_make ("amlv4l2mpeg4dec", "transcoding-v4l2_mpeg4_dec");
         src_caps = gst_caps_new_simple("video/mpeg",
                                         "mpegversion", G_TYPE_INT, 2,
                                         "systemstream", G_TYPE_BOOLEAN, FALSE,
                                         // "width", G_TYPE_INT, param->src_size.width,
                                         // "height", G_TYPE_INT, param->src_size.height,
-                                        // "framerate", GST_TYPE_FRACTION, param->src_framerate,
+                                        //"framerate", GST_TYPE_FRACTION, param->src_framerate,1,
                                         NULL);
 
         //src_caps = gst_caps_new_simple("video/mpeg",NULL);
         //src_caps = gst_caps_new_any();
         break;
     case VC1:
-        data->v4l2_dec = gst_element_factory_make ("amlv4l2vc1dec", "v4l2_vc1_dec");
+        data->v4l2_dec = gst_element_factory_make ("amlv4l2vc1dec", "transcoding-v4l2_vc1_dec");
         break;
     case VP9:
-        data->v4l2_dec = gst_element_factory_make ("amlv4l2vp9dec", "v4l2_vp9_dec");
+        data->v4l2_dec = gst_element_factory_make ("amlv4l2vp9dec", "transcoding-v4l2_vp9_dec");
         break;
     default:
         GST_ERROR("%s No match dec codec : %d\n", __func__, param->src_codec);
@@ -145,19 +146,19 @@ HANDLE video_transcoding_init( video_transcoding_param *param, int argc, char **
     switch (param->dst_codec)
     {
     case JPEG:
-        data->video_enc = gst_element_factory_make ("amljpegenc", "video_jpeg_enc");
+        data->video_enc = gst_element_factory_make ("amljpegenc", "transcoding-video_jpeg_enc");
         break;
     case H264:
-        data->video_enc = gst_element_factory_make ("amlvenc", "video_h264_enc");
+        data->video_enc = gst_element_factory_make ("amlvenc", "transcoding-video_h264_enc");
                     //sink_caps = gst_caps_new_simple("video/x-raw",
         sink_caps = gst_caps_new_simple("video/x-h264",
                                         "width", G_TYPE_INT, param->dst_size.width,
                                         "height", G_TYPE_INT, param->dst_size.height,
-                                        "framerate", GST_TYPE_FRACTION, param->dst_framerate,
+                                        "framerate", GST_TYPE_FRACTION, param->dst_framerate,1,
                                         NULL);
         break;
     case H265:
-        data->video_enc = gst_element_factory_make ("amlvenc", "video_h265_enc");
+        data->video_enc = gst_element_factory_make ("amlvenc", "transcoding-video_h265_enc");
         sink_caps = gst_caps_new_simple("video/x-h265",
                                         "width", G_TYPE_INT, param->dst_size.width,
                                         "height", G_TYPE_INT, param->dst_size.height,
@@ -174,10 +175,10 @@ HANDLE video_transcoding_init( video_transcoding_param *param, int argc, char **
 
     /* Create the elements */
     // data->app_queue = gst_element_factory_make ("queue", "app_queue");
-    data->app_sink = gst_element_factory_make ("appsink", "app_sink");
-    data->app_source = gst_element_factory_make ("appsrc", "app_source");
+    data->app_sink = gst_element_factory_make ("appsink", "transcoding-app_sink");
+    data->app_source = gst_element_factory_make ("appsrc", "transcoding-app_source");
     // data->ts_demux = gst_element_factory_make ("tsdemux", "ts_demux");
-    data->video_convert = gst_element_factory_make ("amlvconv", "video_convert");
+    data->video_convert = gst_element_factory_make ("amlvconv", "transcoding-video_convert");
     // data->src_parse = gst_element_factory_make ("mpegvideoparse", "src_parse");
     // data->video_queue = gst_element_factory_make ("queue", "video_queue");
     //data->video_rate = gst_element_factory_make ("videorate", "video_rate");
@@ -203,6 +204,8 @@ HANDLE video_transcoding_init( video_transcoding_param *param, int argc, char **
 
     /*configure the app sink */
     g_object_set (data->app_sink, "emit-signals", TRUE, "caps", sink_caps, NULL);
+    g_signal_connect (data->app_sink, "eos", G_CALLBACK (send_eos_event_to_app), data);
+
     //"async", FALSE,
     GST_DEBUG("%s sink_caps we set : %s\n",__func__, gst_caps_to_string(sink_caps));
     gst_caps_unref(sink_caps);
@@ -239,8 +242,14 @@ void video_transcoding_deinit(HANDLE *handle){
     /* free resources */
     data->init = FALSE;
     data->playing = FALSE;
-    g_main_loop_quit(data->main_loop);
-    g_main_loop_unref(data->main_loop);
+    if (pthread_join(data->tid, NULL) ==0) {
+        printf("workloop thread exited successful\n");
+    } else {
+        printf("workloop thread exited fail\n");
+    }
+
+    //g_main_loop_quit(data->main_loop);
+    //g_main_loop_unref(data->main_loop);
     gst_object_unref(data->pipeline);
     free(data);
 
@@ -357,7 +366,7 @@ static GstFlowReturn appsink_pull_data_callback(GstElement *sink, CustomData *da
         //video_transcoding_pulldata_callback(handle, buffer, out_size);
 
         /* app pull data callback */
-        data->cus_pull_data_callback((HANDLE *)data, out_buffer, out_size);
+        data->cus_pull_data_callback(out_buffer, out_size);
         gst_sample_unref (sample);
         return GST_FLOW_OK;
     }
@@ -420,6 +429,11 @@ int video_transcoding_stop(HANDLE *handle) {
     return 0;
 }
 
+void send_eos_event_to_app (GstElement* sink, CustomData *data){
+    printf("%s we got eos event\n",__func__);
+    data->cus_pull_data_callback(NULL, -1);
+    return;
+}
 
 
 

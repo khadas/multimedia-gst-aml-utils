@@ -1,4 +1,5 @@
 OBJ = *.c
+OUT_DIR ?= .
 
 TARGET = libvideotranscoding.so
 
@@ -17,15 +18,15 @@ LDFLAGS += -lpthread
 
 
 $(TARGET): $(OBJ)
-	$(CC) $(TARGET_CFLAGS) $(CFLAGS) -D_FILE_OFFSET_BITS=64 -Wall -I$(STAGING_DIR)/usr/include/ -L$(STAGING_DIR)/usr/lib $(LDFLAGS) $(OBJ) -shared -fPIC -o $@
+	$(CC) $(TARGET_CFLAGS) $(CFLAGS) -D_FILE_OFFSET_BITS=64 -Wall -I$(STAGING_DIR)/usr/include/ -L$(STAGING_DIR)/usr/lib $(LDFLAGS) $(OBJ) -shared -fPIC -o $(OUT_DIR)/$@
 
 .PHONY: clean
 
 clean:
-	rm -f *.o $(TARGET) $(TEST)
+	rm -f *.o $(OUT_DIR)/$(TARGET)
 
 install:
-	cp inc/*.h $(STAGING_DIR)/usr/include/
-	cp $(TARGET) $(TARGET_DIR)/usr/lib/
-	rm $(TARGET)
+	install -m 644 inc/*.h $(STAGING_DIR)/usr/include
+	install -m 644 $(OUT_DIR)/$(TARGET) $(TARGET_DIR)/usr/lib
+
 

@@ -1,5 +1,6 @@
 TARGET =videotranscoding_demo
 OBJ = videotranscoding_demo.c
+OUT_DIR ?= .
 
 all: $(TARGET)
 
@@ -15,13 +16,12 @@ LDFLAGS += -L$(STAGING_DIR)/usr/lib/ -lvideotranscoding
 # rules
 
 $(TARGET): $(OBJ)
-	$(CC) $(CFLAGS) $(OBJ) $(LDFLAGS) -o $@
+	$(CC) $(CFLAGS) $(OBJ) $(LDFLAGS) -o $(OUT_DIR)/$@
 
 .PHONY: clean
 
 clean:
-	rm -f *.o $(TARGET)
+	rm -f *.o $(OUT_DIR)/$(TARGET)
 
 install:
-	cp $(TARGET) $(TARGET_DIR)/usr/bin
-	rm $(TARGET)
+	cp $(OUT_DIR)/$(TARGET) $(TARGET_DIR)/usr/bin
