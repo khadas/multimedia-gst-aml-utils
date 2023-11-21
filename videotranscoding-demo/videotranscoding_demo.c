@@ -127,8 +127,12 @@ static void SignalHandler(int signum){
     if ( NULL == handle ) {
         return;
     }
+    CustomData_App *data = (CustomData_App *)handle_app;
     video_transcoding_stop(handle);
     video_transcoding_deinit(handle);
+    gst_element_set_state(data->pipeline, GST_STATE_NULL);
+    gst_object_unref(data->pipeline);
+    free(data);
     exit(1);
 }
 
@@ -394,7 +398,7 @@ int main(int argc, char *argv[]) {
     /* release source */
     gst_element_set_state(data->pipeline, GST_STATE_NULL);
     gst_object_unref(data->pipeline);
-
+    free(data);
     return 0;
 }
 

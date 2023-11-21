@@ -242,14 +242,13 @@ void video_transcoding_deinit(HANDLE *handle){
     /* free resources */
     data->init = FALSE;
     data->playing = FALSE;
+    g_main_loop_quit(data->main_loop);
     if (pthread_join(data->tid, NULL) ==0) {
         printf("workloop thread exited successful\n");
     } else {
         printf("workloop thread exited fail\n");
     }
-
-    //g_main_loop_quit(data->main_loop);
-    //g_main_loop_unref(data->main_loop);
+    g_main_loop_unref(data->main_loop);
     gst_object_unref(data->pipeline);
     free(data);
 
