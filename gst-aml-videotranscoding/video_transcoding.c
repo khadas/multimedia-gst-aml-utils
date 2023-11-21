@@ -203,7 +203,7 @@ HANDLE video_transcoding_init( video_transcoding_param *param, int argc, char **
     g_object_set(data->video_enc,"bitrate", param->bitrate_kb, "gop", param->gop_size, NULL);
 
     /*configure the app sink */
-    g_object_set (data->app_sink, "emit-signals", TRUE, "caps", sink_caps, NULL);
+    g_object_set (data->app_sink, "emit-signals", TRUE, "caps", sink_caps, "sync", FALSE, NULL);
     g_signal_connect (data->app_sink, "eos", G_CALLBACK (send_eos_event_to_app), data);
 
     //"async", FALSE,

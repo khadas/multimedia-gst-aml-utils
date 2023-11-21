@@ -350,7 +350,7 @@ int main(int argc, char *argv[]) {
     }
 
     /* Set appsink */
-    g_object_set(G_OBJECT(data->sink), "emit-signals", TRUE, NULL);
+    g_object_set(G_OBJECT(data->sink), "emit-signals", TRUE, "sync", FALSE, NULL);
     g_signal_connect(G_OBJECT(data->sink), "new-sample", G_CALLBACK(new_sample), NULL);
 
     /* Connect the "pad-added" signal handler */
