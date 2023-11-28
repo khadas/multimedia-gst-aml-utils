@@ -1,0 +1,28 @@
+Description:
+videotranscoding_demo is an demo for convert to different resolutions,codec and fps.
+
+How to use:
+--------------
+videotranscoding_demo <media-file> <config-file>
+
+Pass in two parameters, the first parameter is the converted multimedia file, and the second parameter is the configuration file.
+
+The configuration file format is as follows
+
+src_size={1920, 1080}
+src_codec=MPEG4
+src_framerate=60
+dst_size={720, 480}
+dst_codec=H264
+dst_framerate=30
+bitrate_kb=3000
+gop_size=60
+
+src_size is the original video resolution.
+src_codec is the original video encoding format.
+src_framerate is the original video fps.
+dst_size is the video resolution you want to convert to.
+dst_codec is the video encoding format you want to convert to.
+dst_framerate is the video fps you want to convert to.
+bitrate_kb is the code rate of encoder.
+gop_size is the GOP size.
