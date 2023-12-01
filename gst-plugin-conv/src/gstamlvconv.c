@@ -403,12 +403,14 @@ gst_aml_vconv_transform_frame (GstVideoFilter * filter,
   GST_INFO_OBJECT(self, "self->videorate.from_rate_numerator: %d,self->videorate.from_rate_denominator: %d",self->videorate.from_rate_numerator,self->videorate.from_rate_denominator);
   GST_INFO_OBJECT(self, "self->videorate.to_rate_numerator: %d,self->videorate.to_rate_denominator: %d",self->videorate.to_rate_numerator,self->videorate.to_rate_denominator);
   self->videorate.out_frame_count = self->videorate.out_frame_count + 1;
-  divisor = (double)(self->videorate.from_rate_numerator / self->videorate.from_rate_denominator) / (double)(self->videorate.to_rate_numerator / self->videorate.to_rate_denominator);
-  remainder = fmod((double)self->videorate.out_frame_count ,divisor);
-  GST_INFO_OBJECT(self, "divisor: %lf,remainder: %lf,GlobalFrameCount :%lf",divisor,remainder,self->videorate.out_frame_count);
-  if (1.0 <= remainder) {
-      GST_INFO_OBJECT(self, "drop frame");
-      return GST_BASE_TRANSFORM_FLOW_DROPPED;
+  if (0 != self->videorate.to_rate_numerator) {
+      divisor = (double)(self->videorate.from_rate_numerator / self->videorate.from_rate_denominator) / (double)(self->videorate.to_rate_numerator / self->videorate.to_rate_denominator);
+      remainder = fmod((double)self->videorate.out_frame_count ,divisor);
+      GST_INFO_OBJECT(self, "divisor: %lf,remainder: %lf,GlobalFrameCount :%lf",divisor,remainder,self->videorate.out_frame_count);
+      if (1.0 <= remainder) {
+          GST_INFO_OBJECT(self, "drop frame");
+          return GST_BASE_TRANSFORM_FLOW_DROPPED;
+      }
   }
 
   // output buffer
@@ -676,6 +678,12 @@ gst_aml_vconv_init (GstAmlVConv *self)
   self->graphic.m_input.memory = NULL;
   self->graphic.m_input.fd = -1;
   self->graphic.m_input.size = 0;
+
+  self->videorate.from_rate_denominator=0;
+  self->videorate.from_rate_numerator=0;
+  self->videorate.to_rate_denominator=0;
+  self->videorate.to_rate_numerator=0;
+  self->videorate.out_frame_count=0;
 
   self->dmabuf_alloc = NULL;
 }
