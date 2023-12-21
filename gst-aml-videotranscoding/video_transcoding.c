@@ -192,7 +192,7 @@ HANDLE video_transcoding_init( video_transcoding_param *param, int argc, char **
     }
 
     /* configure the appsrc */
-    g_object_set(data->app_source, "caps", src_caps, NULL);
+    g_object_set(data->app_source, "caps", src_caps, "block", TRUE, NULL);
     GST_DEBUG("%s sink_caps we set : %s\n",__func__, gst_caps_to_string(src_caps));
     gst_caps_unref(src_caps);
 

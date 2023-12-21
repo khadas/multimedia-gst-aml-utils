@@ -36,20 +36,23 @@ CodecType tset_code = MPEG4;
 
 /* Structure to contain all our information, so we can pass it to callbacks */
 typedef struct _CustomData_App {
-    GstElement *pipeline;
-    GstElement *source;
+    GMainLoop *main_loop;
+    GstElement *pipeline_demux;
+    GstElement *pipeline_mux;
+    GstElement *file_source;
     GstElement *demuxer;
     GstElement *video_queue;
-    GstElement *video_queue1;
     GstElement *audio_queue;
-    GstElement *videoparser;
-    GstElement *videoparser1;
-    GstElement *sink;
-    GstElement *audioparser;
+    GstElement *video_mpegparser;
+    GstElement *audio_parser;
+    GstElement *videosink;
+    GstElement *audiosink;
+    GstElement *app_source_video;
+    GstElement *app_source_audio;
+    GstElement *video_h26xparser;
+    GstElement *audio_parser_mux;
     GstElement *muxer;
     GstElement *filesink;
-    GstElement *app_source;
-
 } CustomData_App;
 
 // init the global parmam
@@ -130,24 +133,22 @@ static void SignalHandler(int signum){
     CustomData_App *data = (CustomData_App *)handle_app;
     video_transcoding_stop(handle);
     video_transcoding_deinit(handle);
-    gst_element_set_state(data->pipeline, GST_STATE_NULL);
-    gst_object_unref(data->pipeline);
+    gst_element_set_state(data->pipeline_demux, GST_STATE_NULL);
+    gst_object_unref(data->pipeline_demux);
+    gst_element_set_state(data->pipeline_mux, GST_STATE_NULL);
+    gst_object_unref(data->pipeline_mux);
+
     free(data);
     exit(1);
 }
 
-static GstFlowReturn new_sample(GstElement *appsink, gpointer data) {
+static GstFlowReturn new_sample_video(GstElement *appsink, gpointer data) {
     GstSample *sample = gst_app_sink_pull_sample(GST_APP_SINK(appsink));
     if (sample) {
         GstBuffer *buffer = gst_sample_get_buffer(sample);
-        // GstCaps *caps = gst_sample_get_caps(sample);
-        // gchar *caps_str = gst_caps_to_string(caps);
-        // g_print("Caps: %s\n", caps_str);
-        //g_free(caps_str);
-
         if (buffer) {
             gsize size = gst_buffer_get_size(buffer);
-            g_print("Received ES data: %d, %s\n", (int)size, (const gchar *)data);
+            //g_print("Received video ES data: %d\n", (int)size);
             // save the out data
             video_transcoding_writeData(handle, buffer, size);
             gst_sample_unref(sample);
@@ -158,6 +159,33 @@ static GstFlowReturn new_sample(GstElement *appsink, gpointer data) {
 
     return GST_FLOW_ERROR;
 }
+
+static GstFlowReturn new_sample_audio(GstElement *appsink, gpointer data) {
+    GstPadLinkReturn ret;
+    GstSample *sample = gst_app_sink_pull_sample(GST_APP_SINK(appsink));
+    CustomData_App *data_app = (CustomData_App *)handle_app;
+    if (sample) {
+        GstBuffer *buffer = gst_sample_get_buffer(sample);
+        if (buffer) {
+            gsize size = gst_buffer_get_size(buffer);
+            //g_print("Received audio ES data: %d\n", (int)size);
+            // save the out data
+            GstBuffer *gst_buffer = gst_buffer_copy((GstBuffer *)buffer);
+            ret = gst_app_src_push_buffer(data_app->app_source_audio, gst_buffer);
+            if (ret != GST_FLOW_OK) {
+                /* We got some error, stop sending data */
+                printf("write data error\n");
+                return -1;
+            }
+            gst_sample_unref(sample);
+            return GST_FLOW_OK;
+        }
+
+    }
+
+    return GST_FLOW_ERROR;
+}
+
 
 /* This function will be called by the pad-added signal */
 static void pad_added_handler (GstElement *src, GstPad *new_pad, CustomData_App *data) {
@@ -220,18 +248,20 @@ int video_transcoding_pulldata_callback(void *buffer, gint size){
   GstStateChangeReturn ret=GST_FLOW_OK;
   if (NULL != buffer) {
     /* The only thing we do in this example is print a * to indicate a received buffer */
-    g_print ("%s : ****** \n", __func__);
+    //g_print ("%s : ****** \n", __func__);
     GstBuffer *gst_buffer = gst_buffer_copy((GstBuffer *)buffer);
-    ret = gst_app_src_push_buffer(data->app_source, gst_buffer);
+    ret = gst_app_src_push_buffer(data->app_source_video, gst_buffer);
     if (ret != GST_FLOW_OK) {
         /* We got some error, stop sending data */
         printf("write data error\n");
         return -1;
     }
-    printf("%s : write data func done\n", __func__);
+    //printf("%s : write video data func done\n", __func__);
     return 0;
   }
-  gst_element_send_event(data->app_source, gst_event_new_eos());
+  gst_app_src_end_of_stream(GST_APP_SRC(data->app_source_video));
+  gst_app_src_end_of_stream(GST_APP_SRC(data->app_source_audio));
+
   return 0;
 }
 
@@ -242,11 +272,56 @@ void send_eos_event (GstElement* appsink, HANDLE handle){
     return;
 }
 
+/* This function is called when an error message is posted on the bus */
+static gboolean handle_message (GstBus *bus, GstMessage *msg, CustomData_App *data)
+{
+    GError *err;
+    gchar *debug_info;
+
+    switch (GST_MESSAGE_TYPE(msg))
+    {
+    case GST_MESSAGE_ERROR:
+        gst_message_parse_error(msg, &err, &debug_info);
+        GST_ERROR("%s Error received from element %s: %s\n",__func__, GST_OBJECT_NAME(msg->src), err->message);
+        GST_ERROR("Debugging information: %s\n", debug_info ? debug_info : "none");
+        g_clear_error(&err);
+        g_free(debug_info);
+        g_main_loop_quit(data->main_loop);
+        break;
+    case GST_MESSAGE_EOS:
+        printf("%s End-Of-Stream reached.\n", __func__);
+        g_main_loop_quit(data->main_loop);
+        break;
+    case GST_MESSAGE_STATE_CHANGED:
+    {
+        GstState old_state, new_state, pending_state;
+        gst_message_parse_state_changed(msg, &old_state, &new_state, &pending_state);
+        GST_DEBUG("%s: state changed from %s to %s\n", GST_MESSAGE_SRC_NAME(msg), gst_element_state_get_name(old_state),
+                gst_element_state_get_name(new_state));
+        if (GST_MESSAGE_SRC(msg) == GST_OBJECT(data->pipeline_mux))
+        {
+            GST_DEBUG_BIN_TO_DOT_FILE_WITH_TS(GST_BIN(data->pipeline_mux), GST_DEBUG_GRAPH_SHOW_ALL, \
+            g_strdup_printf("app_dot.%s_%s", gst_element_state_get_name(old_state), gst_element_state_get_name(new_state)));
+        }
+        if (GST_MESSAGE_SRC(msg) == GST_OBJECT(data->pipeline_demux))
+        {
+            GST_DEBUG_BIN_TO_DOT_FILE_WITH_TS(GST_BIN(data->pipeline_demux), GST_DEBUG_GRAPH_SHOW_ALL, \
+            g_strdup_printf("demuxtranscodin_dot.%s_%s", gst_element_state_get_name(old_state), gst_element_state_get_name(new_state)));
+        }
+        break;
+    }
+
+    default:
+        break;
+    }
+
+    return TRUE;
+}
+
 
 
 int main(int argc, char *argv[]) {
     CustomData_App *data = (CustomData_App *)malloc(sizeof(CustomData_App));
-    GstBus *bus;
     GstMessage *msg;
     GstStateChangeReturn ret;
     GstCaps* src_caps = NULL;
@@ -267,37 +342,43 @@ int main(int argc, char *argv[]) {
     /* init the gstreamer library */
     gst_init(&argc, &argv);
 
-    data->pipeline = gst_pipeline_new("demo-pipeline");
+    data->pipeline_demux = gst_pipeline_new("demo-pipeline");
+    data->pipeline_mux = gst_pipeline_new("demo-pipeline");
 
-    data->source = gst_element_factory_make("filesrc", "demo-file-source");
-    g_object_set(G_OBJECT(data->source), "location", argv[1], NULL);
+    data->file_source = gst_element_factory_make("filesrc", "demo-file-source");
+    g_object_set(G_OBJECT(data->file_source), "location", argv[1], NULL);
 
     data->demuxer = gst_element_factory_make("tsdemux", "demo-ts-demuxer");
 
-    data->videoparser = gst_element_factory_make("mpegvideoparse", "demo-mpegvideo-parser");
-
-    //data->videoparser1 = gst_element_factory_make("h264parse", "h264parse-parser");
+    data->video_mpegparser = gst_element_factory_make("mpegvideoparse", "demo-mpegvideo-parser");
 
     data->video_queue = gst_element_factory_make ("queue", "demo-video_queue");
 
     data->audio_queue = gst_element_factory_make ("queue", "demo-audio_queue");
 
-    data->sink = gst_element_factory_make("appsink", "demo-my-sink");
+    data->videosink = gst_element_factory_make("appsink", "demo-video-sink");
 
-    data->audioparser = gst_element_factory_make("ac3parse", "demo-ac3audio-parser");
+    data->audiosink = gst_element_factory_make("appsink", "demo-audio-sink");
 
-    data->muxer = gst_element_factory_make("mpegtsmux", "demo-ts-muxer");
+    data->audio_parser = gst_element_factory_make("ac3parse", "demo-ac3audio-parser");
+
+    data->app_source_video = gst_element_factory_make ("appsrc", "demo-app_source_video");
+
+    data->app_source_audio = gst_element_factory_make ("appsrc", "demo-app_source_audio");
+
+    data->audio_parser_mux = gst_element_factory_make("ac3parse", "demo-ac3audio_parser_mux");
 
     data->filesink = gst_element_factory_make("filesink", "demo-my-filesink");
     g_object_set(G_OBJECT(data->filesink), "location", "/data/test.ts", NULL);
-    data->app_source = gst_element_factory_make ("appsrc", "demo-app_source_test");
+
+    data->muxer = gst_element_factory_make("mpegtsmux", "demo-ts-muxer");
 
     switch (global_video_transcoding_param.dst_codec)
     {
     case H264:
-        data->videoparser1 = gst_element_factory_make("h264parse", "demo-h264parse-parser");
+        data->video_h26xparser = gst_element_factory_make("h264parse", "demo-h264parse-parser");
         src_caps = gst_caps_new_simple("video/x-h264",
-                                    "stream-format", G_TYPE_STRING, "byte-stream",
+                                       "stream-format", G_TYPE_STRING, "byte-stream",
                                         "alignment",G_TYPE_STRING,"au",
                                         //"width", G_TYPE_INT, 720,
                                         //"height", G_TYPE_INT, 420,
@@ -306,10 +387,10 @@ int main(int argc, char *argv[]) {
         break;
 
     case H265:
-        data->videoparser1 = gst_element_factory_make("h265parse", "demo-h265parse-parser");
+        data->video_h26xparser = gst_element_factory_make("h265parse", "demo-h265parse-parser");
         src_caps = gst_caps_new_simple("video/x-h265",
                                         "stream-format", G_TYPE_STRING, "byte-stream",
-                                        "alignment",G_TYPE_STRING,"nal",
+                                        "alignment",G_TYPE_STRING,"au",
                                         //"width", G_TYPE_INT, 720,
                                         //"height", G_TYPE_INT, 420,
                                         // "framerate", GST_TYPE_FRACTION, param->src_framerate,
@@ -319,85 +400,138 @@ int main(int argc, char *argv[]) {
         break;
     }
 
-        /* configure the appsrc */
-     g_object_set (data->app_source, "caps", src_caps, NULL);
+    /* configure the appsrc */
+    g_object_set (data->app_source_video, "caps", src_caps, "block", TRUE, NULL);
+    gst_caps_unref(src_caps);
+
+    GstCaps* src_caps_audio = gst_caps_new_simple("audio/x-ac3", NULL);
+    g_object_set (data->app_source_audio, "caps", src_caps_audio, "block", TRUE, NULL);
+    gst_caps_unref(src_caps_audio);
 
     /* Check if all elements were successfully created */
-    if (!data->pipeline || !data->source || !data->demuxer || !data->videoparser || !data->videoparser1
-        || !data->sink || !data->audioparser || !data->muxer || !data->video_queue || !data->audio_queue || !data->app_source) {
+    if (!data->pipeline_demux || !data->pipeline_mux || !data->file_source || !data->demuxer || !data->video_queue || !data->audio_queue
+        || !data->video_mpegparser || !data->audio_parser || !data->videosink || !data->audiosink
+        || !data->app_source_video || !data->app_source_audio || !data->video_h26xparser || !data->audio_parser_mux || !data->muxer || !data->filesink) {
         g_print("One or more elements could not be created. Exiting.\n");
         return -1;
     }
 
     /* Add elements to the pipeline */
-    gst_bin_add(GST_BIN(data->pipeline), data->source);
-    gst_bin_add(GST_BIN(data->pipeline), data->demuxer);
-    gst_bin_add(GST_BIN(data->pipeline), data->video_queue);
-    gst_bin_add(GST_BIN(data->pipeline), data->audio_queue);
-    gst_bin_add(GST_BIN(data->pipeline), data->videoparser);
-    gst_bin_add(GST_BIN(data->pipeline), data->sink);
-    gst_bin_add(GST_BIN(data->pipeline), data->audioparser);
-    gst_bin_add(GST_BIN(data->pipeline), data->app_source);
-    gst_bin_add(GST_BIN(data->pipeline), data->videoparser1);
-    gst_bin_add(GST_BIN(data->pipeline), data->muxer);
-    gst_bin_add(GST_BIN(data->pipeline), data->filesink);
+    gst_bin_add(GST_BIN(data->pipeline_demux), data->file_source);
+    gst_bin_add(GST_BIN(data->pipeline_demux), data->demuxer);
+    gst_bin_add(GST_BIN(data->pipeline_demux), data->video_queue);
+    gst_bin_add(GST_BIN(data->pipeline_demux), data->audio_queue);
+    gst_bin_add(GST_BIN(data->pipeline_demux), data->video_mpegparser);
+    gst_bin_add(GST_BIN(data->pipeline_demux), data->audio_parser);
+    gst_bin_add(GST_BIN(data->pipeline_demux), data->videosink);
+    gst_bin_add(GST_BIN(data->pipeline_demux), data->audiosink);
 
-    //|| !gst_element_link_many(data->app_source, data->muxer, data->filesink, NULL)
-    // || !gst_element_link(data->muxer, data->filesink)
+    gst_bin_add(GST_BIN(data->pipeline_mux), data->app_source_video);
+    gst_bin_add(GST_BIN(data->pipeline_mux), data->app_source_audio);
+    gst_bin_add(GST_BIN(data->pipeline_mux), data->video_h26xparser);
+    gst_bin_add(GST_BIN(data->pipeline_mux), data->audio_parser_mux);
+    gst_bin_add(GST_BIN(data->pipeline_mux), data->muxer);
+    gst_bin_add(GST_BIN(data->pipeline_mux), data->filesink);
 
-    /* Link elements */
-    if (!gst_element_link(data->source, data->demuxer) || !gst_element_link_many(data->video_queue, data->videoparser, data->sink, NULL)
-        || !gst_element_link_many(data->app_source, data->videoparser1, data->muxer, data->filesink, NULL)
-        || !gst_element_link_many(data->audio_queue, data->audioparser, data->muxer, NULL)) {
-        g_print("Elements could not be linked. Exiting.\n");
+    /* pipeline_demux link elements */
+    if (!gst_element_link(data->file_source, data->demuxer) || !gst_element_link_many(data->video_queue, data->video_mpegparser, data->videosink, NULL)
+        || !gst_element_link_many(data->audio_queue, data->audio_parser, data->audiosink, NULL)) {
+        g_print("pipeline_demux Elements could not be linked. Exiting.\n");
         return -1;
     }
 
     /* Set appsink */
-    g_object_set(G_OBJECT(data->sink), "emit-signals", TRUE, "sync", FALSE, NULL);
-    g_signal_connect(G_OBJECT(data->sink), "new-sample", G_CALLBACK(new_sample), NULL);
+    g_object_set(G_OBJECT(data->videosink), "emit-signals", TRUE, "sync", FALSE, NULL);
+    g_signal_connect(G_OBJECT(data->videosink), "new-sample", G_CALLBACK(new_sample_video), NULL);
+
+    /* Set appsink */
+    g_object_set(G_OBJECT(data->audiosink), "emit-signals", TRUE, "sync", FALSE, NULL);
+    g_signal_connect(G_OBJECT(data->audiosink), "new-sample", G_CALLBACK(new_sample_audio), NULL);
 
     /* Connect the "pad-added" signal handler */
     g_signal_connect(data->demuxer, "pad-added", G_CALLBACK(pad_added_handler), data);
+
+    /* pipeline_mux link elements */
+     if (!gst_element_link_many(data->app_source_video, data->video_h26xparser, NULL)
+        ) {
+        g_print("app_source_video Elements could not be linked. Exiting.\n");
+        return -1;
+    }
+
+     /* pipeline_mux link elements */
+      if (!gst_element_link_many(data->app_source_audio, data->audio_parser_mux, NULL)
+         ) {
+         g_print("app_source_audio Elements could not be linked. Exiting.\n");
+         return -1;
+     }
+
+     /* pipeline_mux link elements */
+      if ( !gst_element_link_many(data->video_h26xparser, data->muxer, NULL)
+         ) {
+         g_print("video_h26xparser Elements could not be linked. Exiting.\n");
+         return -1;
+     }
+      if ( !gst_element_link_many(data->audio_parser_mux, data->muxer, NULL)
+         ) {
+         g_print("audio_parser_mux Elements could not be linked. Exiting.\n");
+         return -1;
+     }
+
+     if (!gst_element_link(data->muxer, data->filesink)
+        ) {
+        g_print("muxer and filesink Elements could not be linked. Exiting.\n");
+        return -1;
+    }
 
     handle_app=(HANDLE)data;
     handle = video_transcoding_init(&global_video_transcoding_param, argc, NULL);
     int ret_lib=video_transcoding_start(handle);
     if (ret_lib == -1) {
         g_printerr("lib pip: Unable to set the pipeline to the playing state.\n");
-        gst_object_unref(data->pipeline);
+        gst_object_unref(data->pipeline_demux);
         return -1;
     }
+
     /* send eos event */
-    g_signal_connect(G_OBJECT(data->sink), "eos", G_CALLBACK(send_eos_event), handle);
+    g_signal_connect(G_OBJECT(data->videosink), "eos", G_CALLBACK(send_eos_event), handle);
 
 
     /* Set pipeline status to playing */
-    ret = gst_element_set_state(data->pipeline, GST_STATE_PLAYING);
+    ret = gst_element_set_state(data->pipeline_demux, GST_STATE_PLAYING);
     if (ret == GST_STATE_CHANGE_FAILURE) {
-        g_printerr("Unable to set the pipeline to the playing state.\n");
-        gst_object_unref(data->pipeline);
+        g_printerr("Unable to set the pipeline_demux to the playing state.\n");
+        gst_object_unref(data->pipeline_demux);
+        return -1;
+    }
+
+    /* Set pipeline status to playing */
+    ret = gst_element_set_state(data->pipeline_mux, GST_STATE_PLAYING);
+    if (ret == GST_STATE_CHANGE_FAILURE) {
+        g_printerr("Unable to set the pipeline_mux to the playing state.\n");
+        gst_object_unref(data->pipeline_mux);
         return -1;
     }
 
     video_transcoding_callback pull_data_callback = video_transcoding_pulldata_callback;
     video_transcoding_setSinkCallback(handle, pull_data_callback);
 
-    /* main loop */
-    bus = gst_element_get_bus(data->pipeline);
-    msg = gst_bus_timed_pop_filtered(bus, GST_CLOCK_TIME_NONE, GST_MESSAGE_EOS);
-    //msg = gst_bus_poll(bus, GST_MESSAGE_EOS, GST_CLOCK_TIME_NONE);
-    //gst_message_unref(msg);
+    data->main_loop = g_main_loop_new(NULL, FALSE);
+    GstBus *bus = gst_element_get_bus(data->pipeline_mux);
+    gst_bus_add_watch(bus, (GstBusFunc)handle_message, data);
+    gst_object_unref(bus);
 
-    if (msg != NULL) {
-        printf("release the source demo to do\n");
-        video_transcoding_stop(handle);
-        video_transcoding_deinit(handle);
-    }
+    g_main_loop_run(data->main_loop);
+
+    printf("release the source demo to do\n");
+    video_transcoding_stop(handle);
+    video_transcoding_deinit(handle);
 
     /* release source */
-    gst_element_set_state(data->pipeline, GST_STATE_NULL);
-    gst_object_unref(data->pipeline);
+    gst_element_set_state(data->pipeline_demux, GST_STATE_NULL);
+    gst_object_unref(data->pipeline_demux);
+    gst_element_set_state(data->pipeline_mux, GST_STATE_NULL);
+    gst_object_unref(data->pipeline_mux);
+
     free(data);
     return 0;
 }
