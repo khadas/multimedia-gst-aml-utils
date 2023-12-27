@@ -1,5 +1,5 @@
 WHAT IT IS
 ----------
 
-gst-plugin-amlvconv is a video format convert/resize Gstreamer plugin.
-
+gst-plugin-amlvconv is a video format convert/resize/rotate Gstreamer plugin.
+It's using Ge2D Hardware.

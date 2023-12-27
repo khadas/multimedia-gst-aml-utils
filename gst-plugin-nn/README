@@ -2,3 +2,4 @@ WHAT IT IS
 ----------
 
 gst-plugin-amlnn is a nn detection GStreamer plugin.
+It should co-work with nnoverlay plugin
