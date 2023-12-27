@@ -16,7 +16,7 @@
 #define DEBUG_BUFFER_LEN 1280
 
 
-dma_debug_level_t g_log_level = DMA_DEBUG_LEVEL_ERROR;
+dma_debug_level_t g_log_level = DMA_DEBUG_LEVEL_WARN;
 
 void dma_set_log_level(dma_debug_level_t level,dma_log_format_t output_format)
 {

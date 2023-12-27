@@ -4,7 +4,8 @@
 
 #include "detect_log.h"
 
-det_debug_level_t g_log_level = DET_DEBUG_LEVEL_ERROR;
+//det_debug_level_t g_log_level = DET_DEBUG_LEVEL_ERROR;
+det_debug_level_t g_log_level = DET_DEBUG_LEVEL_WARN;
 
 void det_set_log_level(det_debug_level_t level,det_log_format_t output_format)
 {

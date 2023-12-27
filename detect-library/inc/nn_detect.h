@@ -19,6 +19,7 @@ det_status_t det_set_log_config(det_debug_level_t level,det_log_format_t output_
 // for async
 det_status_t det_trigger_inference(input_image_t imageData, det_model_type modelType);
 det_status_t det_get_inference_result(pDetResult resultData, det_model_type modelType);
+//det_status_t det_set_data_to_NPU(input_image_t imageData, det_model_type modelType);
 
 
 #ifdef __cplusplus

@@ -137,7 +137,7 @@ typedef enum {
 typedef enum {
   DEV_REVA = 0,
   DEV_REVB,
-  DEV_MS1,
+  DEV_SM1,
   DEV_A1,
   DEV_TM2,
   DEV_C2,
@@ -145,6 +145,7 @@ typedef enum {
   DEV_C308,
   DEV_AX201,
   DEV_A311D2,
+  DEV_G12B,
 } dev_type;
 
 ///@brief log output format

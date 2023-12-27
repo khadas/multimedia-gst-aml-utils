@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "nn_sdk.h": "c",
+        "nn_util.h": "c",
+        "cv_postprocess.h": "c",
+        "iostream": "cpp"
+    }
+}

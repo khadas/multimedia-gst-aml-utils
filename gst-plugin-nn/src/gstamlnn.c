@@ -623,6 +623,9 @@ static gboolean detection_process(GstAmlNN *self) {
       self->face_det.prepare_idx = 0;
     }
   }
+  GST_INFO_OBJECT(self, "detection_process done,prepare_idx=%d next_nn_idx=%d,cur_nn_idx=%d",self->face_det.prepare_idx,self->face_det.next_nn_idx,self->face_det.cur_nn_idx);
+
+
   self->face_det.cur_nn_idx = -1;
   g_mutex_unlock(&self->face_det.buffer_lock);
 
@@ -664,6 +667,7 @@ static gpointer amlnn_process(void *data) {
     if (g_mutex_trylock(&pPPThread->m_mutex)) {
       pPPThread->m_ready = TRUE;
       g_cond_signal(&pPPThread->m_cond);
+      GST_INFO_OBJECT(self, "send m_cond to post process, model=%d", self->face_det.model);
       g_mutex_unlock(&pPPThread->m_mutex);
     }
   }
@@ -727,6 +731,7 @@ static gpointer amlnn_post_process(void *data) {
       g_cond_wait(&pThread->m_cond, &pThread->m_mutex);
     }
 
+    GST_INFO_OBJECT(self, "amlnn_post_process wait m_cond done, model=%d", self->face_det.model);
     if (!pThread->m_running) {
       g_mutex_unlock(&pThread->m_mutex);
       continue;
@@ -747,6 +752,11 @@ static gpointer amlnn_post_process(void *data) {
     res.result.det_result.result_name = g_new(det_classify_result_t, self->face_det.param.param.det_param.detect_num);
     det_get_inference_result(&res, self->face_det.model);
     GST_INFO_OBJECT(self, "detection result got, facenum: %d", res.result.det_result.detect_num);
+
+    gettimeofday(&ed, NULL);
+    time_total = (ed.tv_sec - st.tv_sec)*1000000.0 + (ed.tv_usec - st.tv_usec);
+    st=ed;
+    GST_INFO_OBJECT(self, "det_get_inference_result done, time=%lf uS", time_total);
 
     gint width  = self->face_det.width;
     gint height = self->face_det.height;
@@ -771,6 +781,11 @@ static gpointer amlnn_post_process(void *data) {
         snprintf(resbuf.results[i].label_name, MAX_NN_LABEL_LENGTH-1, "%s", res.result.det_result.result_name->label_name);
       }
     }
+
+    gettimeofday(&ed, NULL);
+    time_total = (ed.tv_sec - st.tv_sec)*1000000.0 + (ed.tv_usec - st.tv_usec);
+    st=ed;
+    GST_INFO_OBJECT(self, "nn post process done, time=%lf uS", time_total);
 
     g_free(res.result.det_result.point);
     g_free(res.result.det_result.result_name);
@@ -973,14 +988,56 @@ static GstFlowReturn gst_aml_nn_transform_ip(GstBaseTransform *base,
                 GFX_AML_ROTATION_0,
                 1);
 
+  gettimeofday(&ed, NULL);
+  time_total = (ed.tv_sec - st.tv_sec)*1000000.0 + (ed.tv_usec - st.tv_usec);
+  st = ed;
+  GST_INFO_OBJECT(self, "gfx_stretchblit done, time=%lf uS", time_total);
+
+  //set input data to npu : yi.zhang1 add
+//   GstMapInfo mapinfo;
+//   if (!gst_memory_map(self->face_det.nn_input[prepare_idx].memory, &mapinfo, GST_MAP_READWRITE)) {
+//     GST_ERROR_OBJECT(self, "failed to map memory(%p)", self->face_det.nn_input[prepare_idx].memory);
+//     return FALSE;
+//   }
+
+//   unsigned char *pData = mapinfo.data;
+//   // unsigned char *pData = gst_amldmabuf_mmap(self->face_det.nn_input[nn_idx].memory);
+
+//   GST_INFO_OBJECT(self, "nn_idx=%d, rowbytes=%d, stride=%d",
+//     prepare_idx, self->face_det.rowbytes, self->face_det.stride);
+
+//   if (self->face_det.rowbytes != self->face_det.stride) {
+//     gint rowbytes = self->face_det.rowbytes;
+//     gint stride = self->face_det.stride;
+//     for (int i = 0; i < self->face_det.height; i++) {
+//       memcpy(&pData[rowbytes * i], &pData[stride * i], rowbytes);
+//     }
+//   }
+
+//   GST_INFO_OBJECT(self, "pData=%p, width=%d, height=%d, channel=%d",
+//     pData, self->face_det.width, self->face_det.height, self->face_det.channel);
+
+//   input_image_t im;
+//   im.data = pData;
+//   im.pixel_format = PIX_FMT_RGB888;
+//   im.width = self->face_det.width;
+//   im.height = self->face_det.height;
+//   im.channel = self->face_det.channel;
+//   det_status_t rc = det_set_data_to_NPU(im, self->face_det.model);
+//   gst_memory_unmap(self->face_det.nn_input[prepare_idx].memory, &mapinfo);
+
+//   gettimeofday(&ed, NULL);
+//   time_total = (ed.tv_sec - st.tv_sec)*1000000.0 + (ed.tv_usec - st.tv_usec);
+//   st = ed;
+//   GST_INFO_OBJECT(self, "det_set_data_to_NPU done, time=%lf uS", time_total);
+
+
   // update new render buffer
   g_mutex_lock(&self->face_det.buffer_lock);
   self->face_det.next_nn_idx = self->face_det.prepare_idx;
   g_mutex_unlock(&self->face_det.buffer_lock);
 
-  gettimeofday(&ed, NULL);
-  time_total = (ed.tv_sec - st.tv_sec)*1000000.0 + (ed.tv_usec - st.tv_usec);
-  GST_INFO_OBJECT(self, "gfx_stretchblit done, time=%lf uS", time_total);
+
 
   ThreadInfo *pThread = &self->m_nn_thread;
   if (g_mutex_trylock(&pThread->m_mutex)) {
@@ -989,6 +1046,7 @@ static GstFlowReturn gst_aml_nn_transform_ip(GstBaseTransform *base,
 
     pThread->m_ready = TRUE;
     g_cond_signal(&pThread->m_cond);
+    GST_INFO_OBJECT(self, "gst_aml_nn_transform_ip send cond");
     g_mutex_unlock(&pThread->m_mutex);
   }
 

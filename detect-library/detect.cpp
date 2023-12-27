@@ -80,8 +80,10 @@ typedef struct function_process {
 
 typedef struct detect_network {
     det_model_type      mtype;
-    aml_memory_config_t mem_config;
-    aml_memory_data_t memory_data;
+    aml_memory_config_t mem_config_in[ADDRESS_MAX_NUM];
+    aml_memory_data_t   memory_data_in[ADDRESS_MAX_NUM];
+    aml_memory_config_t mem_config_out[ADDRESS_MAX_NUM];
+    aml_memory_data_t   memory_data_out[ADDRESS_MAX_NUM];
     network_status      status;
     void                *context;
     network_process     process;
@@ -147,38 +149,79 @@ exit:
     return ret;
 }
 
+//ysq
+static aml_hw_type_t hw_type = AML_HARDWARE_ADLA;
 static void check_and_set_dev_type(det_model_type modelType)
 {
-    unsigned char type;
+    unsigned char plat_type;
+
     aml_platform_info_t platform_info;
     p_det_network_t net = &network[modelType];
 
     net->process.read_chip_info(&platform_info);
-    type = platform_info.platform_type;
+    plat_type = platform_info.platform_type;
+    hw_type = platform_info.hw_type;
 
-    switch (type)
+    if (hw_type == AML_HARDWARE_VSI_UNIFY)
     {
-        case 0:
-            LOGI("set_dev_type DEV_C308 and setenv 0");
-            g_dev_type = DEV_C308;
-            setenv("DEV_TYPE", "0", 0);
-            break;
-        case 1:
-            LOGI("set_dev_type DEV_AX201 and setenv 1");
-            g_dev_type = DEV_AX201;
-            setenv("DEV_TYPE", "1", 0);
-            break;
-        case 2:
-            LOGI("set_dev_type DEV_A311D2 and setenv 2");
-            g_dev_type = DEV_A311D2;
-            setenv("DEV_TYPE", "2", 0);
-            break;
-        default:
-            LOGE("set_dev_type fail, please check the type:%d\n", type);
-            break;
+        int customID,powerStatus,ddk_version;
+
+        net->process.getHardwareStatus(&customID,&powerStatus,&ddk_version);
+
+        switch (customID)
+        {
+            case 125:
+                LOGI("set_dev_type DEV_REVA and setenv 0");
+                g_dev_type = DEV_REVA;
+                setenv("DEV_TYPE", "0", 0);
+                break;
+            case 136:
+                LOGI("set_dev_type DEV_REVB and setenv 1");
+                g_dev_type = DEV_REVB;
+                setenv("DEV_TYPE", "1", 0);
+                break;
+            case 153:
+                LOGI("set_dev_type DEV_SM1 and setenv 2");
+                g_dev_type = DEV_SM1;
+                setenv("DEV_TYPE", "2", 0);
+                break;
+            default:
+                LOGE("set_dev_type fail, please check the type ");
+                break;
+        }
+        LOGD("customID:%d\n", customID);
+    }
+    else if (hw_type == AML_HARDWARE_ADLA)
+    {
+        switch (plat_type)
+        {
+            case 0:
+                LOGI("set_dev_type DEV_C308 and setenv 0");
+                g_dev_type = DEV_C308;
+                setenv("DEV_TYPE", "0", 0);
+                break;
+            case 1:
+                LOGI("set_dev_type DEV_AX201 and setenv 1");
+                g_dev_type = DEV_AX201;
+                setenv("DEV_TYPE", "1", 0);
+                break;
+            case 2:
+                LOGI("set_dev_type DEV_A311D2 and setenv 2");
+                g_dev_type = DEV_A311D2;
+                setenv("DEV_TYPE", "2", 0);
+                break;
+            default:
+                LOGE("set_dev_type fail, please check the type:%d\n", plat_type);
+                break;
+        }
+        LOGD("Platform_type:%d\n", plat_type);
+    }
+    else
+    {
+        LOGE("check_and_set_dev_type fail, please check the hw_type:%d\n", hw_type);
     }
 
-    LOGD("Platform_type:%d\n", type);
+    LOGD("hw_type:%d\n", hw_type);
 }
 
 
@@ -252,6 +295,7 @@ det_status_t det_get_model_name(const char * data_file_path, dev_type type,det_m
 {
     int ret = DET_STATUS_OK;
     int index = 0;
+
     switch (mtype)
     {
         case DET_YOLO_V3:
@@ -264,19 +308,40 @@ det_status_t det_get_model_name(const char * data_file_path, dev_type type,det_m
             break;
     }
 
-    switch (type) {
-        case DEV_C308:
-            sprintf(model_path, "%s/%s/%s_A0001.adla", data_file_path,file_name[index],file_name[index]);
-            break;
-        case DEV_AX201:
-            sprintf(model_path, "%s/%s/%s_A0002.adla", data_file_path,file_name[index],file_name[index]);
-            break;
-        case DEV_A311D2:
-            sprintf(model_path, "%s/%s/%s_A0003.adla", data_file_path, file_name[index],file_name[index]);
-            break;
-        default:
-            break;
+    if (hw_type == AML_HARDWARE_VSI_UNIFY)
+    {
+        switch (type)
+        {
+            case DEV_REVA:
+                sprintf(model_path, "%s/%s/%s_7d.nb", data_file_path,file_name[index],file_name[index]);
+                break;
+            case DEV_REVB:
+                sprintf(model_path, "%s/%s/%s_88.nb", data_file_path,file_name[index],file_name[index]); // /etc/nn_data/detect_yolo_v3/detect_yolo_v3_88.nb
+                break;
+            case DEV_SM1:
+                sprintf(model_path, "%s/%s/%s_99.nb", data_file_path,file_name[index],file_name[index]);
+                break;
+            default:
+                break;
+        }
     }
+    else if (hw_type == AML_HARDWARE_ADLA)
+    {
+        switch (type) {
+            case DEV_C308:
+                sprintf(model_path, "%s/%s/%s_A0001.adla", data_file_path,file_name[index],file_name[index]);
+                break;
+            case DEV_AX201:
+                sprintf(model_path, "%s/%s/%s_A0002.adla", data_file_path,file_name[index],file_name[index]);
+                break;
+            case DEV_A311D2:
+                sprintf(model_path, "%s/%s/%s_A0003.adla", data_file_path, file_name[index],file_name[index]); // /etc/nn_data/detect_yolo_v3/detect_yolo_v3_A0003.adla
+                break;
+            default:
+                break;
+        }
+    }
+
     return ret;
 }
 
@@ -284,7 +349,8 @@ det_status_t det_set_model(det_model_type modelType)
 {
     aml_config config;
     int ret = DET_STATUS_OK;
-    int size = 0;
+    int input_size[ADDRESS_MAX_NUM] = {0};
+    int output_size[ADDRESS_MAX_NUM] = {0};
     p_det_network_t net = &network[modelType];
 
     LOGP("Enter, modeltype:%d", modelType);
@@ -302,23 +368,55 @@ det_status_t det_set_model(det_model_type modelType)
     memset(&config,0,sizeof(aml_config));
     LOGI("Start create Model, data_file_path=%s",data_file_path);
     det_get_model_name(data_file_path,g_dev_type,modelType);
-    size = get_input_size(modelType);
+
+    if (hw_type == AML_HARDWARE_VSI_UNIFY)
+    {
+        config.nbgType = NN_NBG_FILE;
+        switch (modelType)
+        {
+            case DET_YOLO_V3:
+                input_size[0] = 416*416*3;
+                output_size[0] = 13*13*255;
+                output_size[1] = 26*26*255;
+                output_size[2] = 52*52*255;
+
+                net->mem_config_in[0].cache_type = AML_WITH_CACHE;
+                net->mem_config_in[0].memory_type = AML_VIRTUAL_ADDR;
+                net->mem_config_in[0].direction = AML_MEM_DIRECTION_READ_WRITE;
+                net->mem_config_in[0].index = 0;
+                net->mem_config_in[0].mem_size = input_size[0];
+                net->process.mallocBuffer(net->context, &net->mem_config_in[0], &net->memory_data_in[0]);
+                config.inOut.inAddr[0] = (uint8_t *)net->memory_data_in[0].viraddr;
+
+                for (int i = 0; i < 3; i++)
+                {
+                    net->mem_config_out[i].cache_type = AML_WITH_CACHE;
+                    net->mem_config_out[i].memory_type = AML_VIRTUAL_ADDR;
+                    net->mem_config_out[i].direction = AML_MEM_DIRECTION_READ_WRITE;
+                    net->mem_config_out[i].index = i;
+                    net->mem_config_out[i].mem_size = output_size[i];
+                    net->process.mallocBuffer(net->context, &net->mem_config_out[i], &net->memory_data_out[i]);
+                    config.inOut.outAddr[i] = (uint8_t *)net->memory_data_out[i].viraddr;
+                }
+
+                config.modelType = DARKNET;
+                break;
+            case DET_AML_FACE_DETECTION:
+                config.modelType = TENSORFLOW;
+                break;
+            default:
+                break;
+        }
+    }
+    else if (hw_type == AML_HARDWARE_ADLA)
+    {
+        config.nbgType = NN_ADLA_FILE;
+        config.modelType = ADLA_LOADABLE;
+    }
 
     LOGI("module_create, model_path=%s",model_path);
     config.path = (const char *)model_path;
-    config.nbgType = NN_NBG_FILE;
     config.typeSize = sizeof(aml_config);
-    switch (modelType)
-    {
-        case DET_YOLO_V3:
-            config.modelType = DARKNET;
-            break;
-        case DET_AML_FACE_DETECTION:
-            config.modelType = TENSORFLOW;
-            break;
-        default:
-            break;
-    }
 
     net->context = net->process.module_create(&config);
     if (net->context == NULL) {
@@ -326,15 +424,37 @@ det_status_t det_set_model(det_model_type modelType)
     _SET_STATUS_(ret, DET_STATUS_CREATE_NETWORK_FAIL, exit);
     }
 
-    net->mem_config.cache_type = AML_WITH_CACHE;
-    net->mem_config.memory_type = AML_VIRTUAL_ADDR;
-    net->mem_config.direction = AML_MEM_DIRECTION_READ_WRITE;
-    net->mem_config.index = 0;
-    net->mem_config.mem_size = size;
-    net->process.mallocBuffer(net->context, &net->mem_config, &net->memory_data);
+    if (hw_type == AML_HARDWARE_ADLA)//vsi要在模型加载前分配buf，adla要在加载之后分配
+    {
+        switch (modelType)
+        {
+            case DET_YOLO_V3:
+                input_size[0] = 416*416*3;
+
+                net->mem_config_in[0].cache_type = AML_WITH_CACHE;
+                net->mem_config_in[0].memory_type = AML_VIRTUAL_ADDR;
+                net->mem_config_in[0].direction = AML_MEM_DIRECTION_READ_WRITE;
+                net->mem_config_in[0].index = 0;
+                net->mem_config_in[0].mem_size = input_size[0];
+                net->process.mallocBuffer(net->context, &net->mem_config_in[0], &net->memory_data_in[0]);
+                break;
+            case DET_AML_FACE_DETECTION:
+                input_size[0] = 640*384*3;
+
+                net->mem_config_in[0].cache_type = AML_WITH_CACHE;
+                net->mem_config_in[0].memory_type = AML_VIRTUAL_ADDR;
+                net->mem_config_in[0].direction = AML_MEM_DIRECTION_READ_WRITE;
+                net->mem_config_in[0].index = 0;
+                net->mem_config_in[0].mem_size = input_size[0];
+                net->process.mallocBuffer(net->context, &net->mem_config_in[0], &net->memory_data_in[0]);
+                break;
+            default:
+                break;
+        }
+    }
 
     net->mtype = modelType;
-    LOGI("input_ptr size=%d, addr=%x", size, net->memory_data.memory);
+    // LOGI("input_ptr size=%d, addr=%x", input_size[0], net->memory_data_in[0].memory);
     net->status = NETWORK_INIT;
 
 exit:
@@ -377,6 +497,7 @@ det_status_t det_set_input(input_image_t imageData, det_model_type modelType)
     nn_input inData;
     int ret = DET_STATUS_OK;
     p_det_network_t net = &network[modelType];
+    int i,j,tmpdata,nn_width, nn_height, channels,offset;
 
     LOGP("Enter, modeltype:%d", modelType);
     if (!net->status) {
@@ -393,21 +514,45 @@ det_status_t det_set_input(input_image_t imageData, det_model_type modelType)
     }
 
     // need check u8 or i8, prepare diff preprocess
-    switch (modelType)
+    if (hw_type == AML_HARDWARE_VSI_UNIFY)
     {
-        case DET_YOLO_V3:
-            memcpy(net->memory_data.viraddr,imageData.data,net->mem_config.mem_size);
-            break;
-        case DET_AML_FACE_DETECTION:
-            memcpy(net->memory_data.viraddr,imageData.data,net->mem_config.mem_size);
-            break;
-        default:
-            break;
+        switch (modelType)
+        {
+            case DET_YOLO_V3:
+                det_get_model_size(modelType,&nn_width, &nn_height, &channels);
+                for (i = 0; i < channels; i++)
+                {
+                    offset = nn_width * nn_height * i;
+                    for (j = 0; j < nn_width * nn_height; j++)
+                    {
+                        tmpdata = (imageData.data[j * channels + i]);
+                        ((unsigned char *)net->memory_data_in[0].viraddr)[j + offset] = tmpdata;
+                    }
+                }
+                break;
+            case DET_AML_FACE_DETECTION:
+                break;
+            default:
+                break;
+        }
     }
+    else if (hw_type == AML_HARDWARE_ADLA)
+    {
+        switch (modelType)
+        {
+            case DET_YOLO_V3:
+            case DET_AML_FACE_DETECTION:
+                memcpy(net->memory_data_in[0].viraddr,imageData.data,net->mem_config_in[0].mem_size);
+                break;
+            default:
+                break;
+        }
+    }
+
     inData.input_type = INPUT_DMA_DATA;
     inData.input_index = 0;
-    inData.size = net->mem_config.mem_size;
-    inData.input = (uint8_t*)net->memory_data.memory;
+    inData.size = net->mem_config_in[0].mem_size;
+    inData.input = (uint8_t*)net->memory_data_in[0].memory;
     ret = net->process.module_input_set(net->context, &inData);
 
     if (ret)
@@ -425,7 +570,7 @@ exit:
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
     g_start = end;
-    printf("det_set_input, time=%lf uS \n", time_total);
+    LOGI("det_set_input, time=%lf uS \n", time_total);
 
     return ret;
 }
@@ -518,55 +663,64 @@ void post_process(det_model_type modelType,void* out,pDetResult resultData)
 
     float left = 0, right = 0, top = 0, bot=0, prob = 0;
     unsigned int i = 0, input_width = 0, input_high = 0;
+    int label_num = 0;
 
     switch (modelType)
     {
-    case DET_YOLO_V3:
-        input_width = 416, input_high = 416;
-        yolov3_out = (yolov3_out_t *)out;
-        resultData->result.det_result.detect_num = yolov3_out->detNum;
-        resultData->result.det_result.point = (det_position_float_t *)malloc(sizeof(det_position_float_t) * resultData->result.det_result.detect_num);
-        for (i=0;i<yolov3_out->detNum;i++)
-        {
-            if (i >= g_detect_number) break;
-            left  = (yolov3_out->pBox[i].x-yolov3_out->pBox[i].w/2.)*input_width;
-            right = (yolov3_out->pBox[i].x+yolov3_out->pBox[i].w/2.)*input_width;
-            top   = (yolov3_out->pBox[i].y-yolov3_out->pBox[i].h/2.)*input_high;
-            bot   = (yolov3_out->pBox[i].y+yolov3_out->pBox[i].h/2.)*input_high;
-            prob = yolov3_out->pBox[i].score;
+        case DET_YOLO_V3:
+            input_width = 416, input_high = 416;
+            yolov3_out = (yolov3_out_t *)out;
+            // printf("yolov3_out->detNum = %d\n", yolov3_out->detNum);
+            resultData->result.det_result.detect_num = yolov3_out->detNum;
+            resultData->result.det_result.point = (det_position_float_t *)malloc(sizeof(det_position_float_t) * resultData->result.det_result.detect_num);
+            resultData->result.det_result.result_name = (det_classify_result_t *)malloc(sizeof(det_classify_result_t) * resultData->result.det_result.detect_num);
+            // printf("detNum = %d\n", yolov3_out->detNum);
+            for (i=0;i<yolov3_out->detNum;i++)
+            {
+                if (i >= g_detect_number) break;
+                left  = (yolov3_out->pBox[i].x-yolov3_out->pBox[i].w/2.)*input_width;
+                right = (yolov3_out->pBox[i].x+yolov3_out->pBox[i].w/2.)*input_width;
+                top   = (yolov3_out->pBox[i].y-yolov3_out->pBox[i].h/2.)*input_high;
+                bot   = (yolov3_out->pBox[i].y+yolov3_out->pBox[i].h/2.)*input_high;
+                prob = yolov3_out->pBox[i].score;
+                label_num = int(yolov3_out->pBox[i].objectClass);
 
-            if (left < 2) left = 2;
-            if (right > input_width-2) right = input_width-2;
-            if (top < 2) top = 2;
-            if (bot > input_high-2) bot = input_high-2;
+                if (left < 2) left = 2;
+                if (right > input_width-2) right = input_width-2;
+                if (top < 2) top = 2;
+                if (bot > input_high-2) bot = input_high-2;
 
-            resultData->result.det_result.point[i].type = DET_RECTANGLE_TYPE;
-            resultData->result.det_result.point[i].point.rectPoint.left = left;
-            resultData->result.det_result.point[i].point.rectPoint.right = right;
-            resultData->result.det_result.point[i].point.rectPoint.top = top;
-            resultData->result.det_result.point[i].point.rectPoint.bottom = bot;
-            resultData->result.det_result.point[i].point.rectPoint.score = prob;
-            // printf("num:%d, left:%f, right:%f, top:%f, bot:%f, score:%f\n", i+1,
-                                                                            // resultData->result.det_result.point[i].point.rectPoint.left,
-                                                                            // resultData->result.det_result.point[i].point.rectPoint.right,
-                                                                            // resultData->result.det_result.point[i].point.rectPoint.top,
-                                                                            // resultData->result.det_result.point[i].point.rectPoint.bottom,
-                                                                            // resultData->result.det_result.point[i].point.rectPoint.score);
-        }
-        break;
-    case DET_AML_FACE_DETECTION:
-        input_width = 640, input_high = 384;
-        face_detect_out = (face_landmark5_out_t *)out;
-        resultData->result.det_result.detect_num = face_detect_out->detNum;
-        resultData->result.det_result.point = (det_position_float_t *)malloc(sizeof(det_position_float_t) * resultData->result.det_result.detect_num);
-        for (i=0;i<face_detect_out->detNum;i++)
-        {
-            if (i >= g_detect_number) break;
-            left = (face_detect_out->facebox[i].x)*input_width;
-            right = (face_detect_out->facebox[i].x + face_detect_out->facebox[i].w)*input_width;
-            top = (face_detect_out->facebox[i].y)*input_high;
-            bot = (face_detect_out->facebox[i].y + face_detect_out->facebox[i].h)*input_high;
-            prob = face_detect_out->facebox[i].score;
+                resultData->result.det_result.point[i].type = DET_RECTANGLE_TYPE;
+                resultData->result.det_result.point[i].point.rectPoint.left = left;
+                resultData->result.det_result.point[i].point.rectPoint.right = right;
+                resultData->result.det_result.point[i].point.rectPoint.top = top;
+                resultData->result.det_result.point[i].point.rectPoint.bottom = bot;
+                resultData->result.det_result.point[i].point.rectPoint.score = prob;
+                resultData->result.det_result.result_name[i].label_id = label_num;
+                memcpy(resultData->result.det_result.result_name[i].label_name, coco_names[label_num], sizeof(coco_names[label_num]));
+                LOGI("num:%d, class:%s, label_num:%d, left:%f, right:%f, top:%f, bot:%f, score:%f\n", i+1,
+                                                                                resultData->result.det_result.result_name[i].label_name,
+                                                                                resultData->result.det_result.result_name[i].label_id,
+                                                                                resultData->result.det_result.point[i].point.rectPoint.left,
+                                                                                resultData->result.det_result.point[i].point.rectPoint.right,
+                                                                                resultData->result.det_result.point[i].point.rectPoint.top,
+                                                                                resultData->result.det_result.point[i].point.rectPoint.bottom,
+                                                                                resultData->result.det_result.point[i].point.rectPoint.score);
+            }
+            break;
+        case DET_AML_FACE_DETECTION:
+            input_width = 640, input_high = 384;
+            face_detect_out = (face_landmark5_out_t *)out;
+            resultData->result.det_result.detect_num = face_detect_out->detNum;
+            resultData->result.det_result.point = (det_position_float_t *)malloc(sizeof(det_position_float_t) * resultData->result.det_result.detect_num);
+            for (i=0;i<face_detect_out->detNum;i++)
+            {
+                if (i >= g_detect_number) break;
+                left = (face_detect_out->facebox[i].x)*input_width;
+                right = (face_detect_out->facebox[i].x + face_detect_out->facebox[i].w)*input_width;
+                top = (face_detect_out->facebox[i].y)*input_high;
+                bot = (face_detect_out->facebox[i].y + face_detect_out->facebox[i].h)*input_high;
+                prob = face_detect_out->facebox[i].score;
 
             if (left < 2) left = 2;
             if (right > input_width-2) right = input_width-2;
@@ -627,7 +781,7 @@ det_status_t det_get_result(pDetResult resultData, det_model_type modelType)
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
     g_start = end;
-    printf("det_set_input-det_get_result, time=%lf uS \n", time_total);
+    LOGI("det_set_input-det_get_result, time=%lf uS \n", time_total);
 
     p_det_network_t net = &network[modelType];
     void *out;
@@ -645,7 +799,7 @@ det_status_t det_get_result(pDetResult resultData, det_model_type modelType)
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
     g_start = end;
-    printf("before AML_PERF_OUTPUT_SET, time=%lf uS \n", time_total);
+    LOGI("before AML_PERF_OUTPUT_SET, time=%lf uS \n", time_total);
 
     outconfig.perfMode = AML_PERF_OUTPUT_SET;
     nn_out = (nn_output*)net->process.module_output_get(net->context,outconfig);
@@ -653,7 +807,7 @@ det_status_t det_get_result(pDetResult resultData, det_model_type modelType)
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
     g_start = end;
-    printf("AML_PERF_OUTPUT_SET, time=%lf uS \n", time_total);
+    LOGI("AML_PERF_OUTPUT_SET, time=%lf uS \n", time_total);
 
     outconfig.perfMode = AML_PERF_INFERENCE;
     nn_out = (nn_output*)net->process.module_output_get(net->context,outconfig);
@@ -661,7 +815,7 @@ det_status_t det_get_result(pDetResult resultData, det_model_type modelType)
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
     g_start = end;
-    printf("AML_PERF_INFERENCE, time=%lf uS \n", time_total);
+    LOGI("AML_PERF_INFERENCE, time=%lf uS \n", time_total);
 
     outconfig.perfMode = AML_PERF_OUTPUT_GET;
     nn_out = (nn_output*)net->process.module_output_get(net->context,outconfig);
@@ -669,7 +823,7 @@ det_status_t det_get_result(pDetResult resultData, det_model_type modelType)
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
     g_start = end;
-    printf("AML_PERF_OUTPUT_GET, time=%lf uS \n", time_total);
+    LOGI("AML_PERF_OUTPUT_GET, time=%lf uS \n", time_total);
 
     out = (void*)net->process.post_process(modelType_sdk, nn_out);
 
@@ -681,7 +835,7 @@ det_status_t det_get_result(pDetResult resultData, det_model_type modelType)
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
     g_start = end;
-    printf("net->process.post_process, time=%lf uS \n", time_total);
+    LOGI("net->process.post_process, time=%lf uS \n", time_total);
 
     post_process(modelType,out,resultData);
     net->status = NETWORK_PROCESSING;
@@ -689,7 +843,7 @@ det_status_t det_get_result(pDetResult resultData, det_model_type modelType)
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
     g_start = end;
-    printf("post_process, time=%lf uS \n", time_total);
+    LOGI("post_process, time=%lf uS \n", time_total);
 exit:
     LOGP("Leave, modeltype:%d", modelType);
 
@@ -708,8 +862,39 @@ det_status_t det_release_model(det_model_type modelType)
         _SET_STATUS_(ret, DET_STATUS_OK, exit);
     }
 
-    if (net->memory_data.viraddr)
-        net->process.freeBuffer(net->context, &net->mem_config, &net->memory_data);
+    if (hw_type == AML_HARDWARE_VSI_UNIFY)//vsi这边需要对输入输出的DMA buf都进行释放
+    {
+        switch (modelType)
+        {
+            case DET_YOLO_V3:
+                if (net->memory_data_in[0].viraddr)
+                    net->process.freeBuffer(net->context, &net->mem_config_in[0], &net->memory_data_in[0]);
+                if (net->memory_data_out[0].viraddr)
+                    net->process.freeBuffer(net->context, &net->mem_config_out[0], &net->memory_data_out[0]);
+                if (net->memory_data_out[1].viraddr)
+                    net->process.freeBuffer(net->context, &net->mem_config_out[1], &net->memory_data_out[1]);
+                if (net->memory_data_out[2].viraddr)
+                    net->process.freeBuffer(net->context, &net->mem_config_out[2], &net->memory_data_out[2]);
+                break;
+            case DET_AML_FACE_DETECTION:
+                break;
+            default:
+                break;
+        }
+    }
+    else if (hw_type == AML_HARDWARE_ADLA)//adla只需要释放输入DMA buf
+    {
+        switch (modelType)
+        {
+            case DET_YOLO_V3:
+            case DET_AML_FACE_DETECTION:
+                if (net->memory_data_in[0].viraddr)
+                    net->process.freeBuffer(net->context, &net->mem_config_in[0], &net->memory_data_in[0]);
+                break;
+            default:
+                break;
+        }
+    }
 
     if (net->context != NULL) {
         net->process.module_destroy(net->context);
@@ -740,6 +925,71 @@ det_status_t det_set_log_config(det_debug_level_t level,det_log_format_t output_
 // for async mode, better performance
 /////////////////////////////////////////////////////////////////////////////////////////////
 
+// det_status_t det_set_data_to_NPU(input_image_t imageData, det_model_type modelType){
+//     int ret = DET_STATUS_OK;
+//     p_det_network_t net = &network[modelType];
+//     struct timeval start;
+//     struct timeval end;
+//     double time_total;
+//     gettimeofday(&start, NULL);
+
+//     int i,j,tmpdata,nn_width, nn_height, channels,offset;
+
+//     ret = check_input_param(imageData, modelType);
+//     if (ret) {
+//         LOGE("Check_input_param fail.");
+//         _SET_STATUS_(ret, DET_STATUS_PARAM_ERROR, exit);
+//     }
+
+
+//     if (hw_type == AML_HARDWARE_VSI_UNIFY)
+//         {
+//             switch (modelType)
+//             {
+//                 case DET_YOLO_V3:
+//                     det_get_model_size(modelType,&nn_width, &nn_height, &channels);
+//                     for (i = 0; i < channels; i++)
+//                     {
+//                         offset = nn_width * nn_height * i;
+//                         for (j = 0; j < nn_width * nn_height; j++)
+//                         {
+//                             tmpdata = (imageData.data[j * channels + i]);
+//                             ((unsigned char *)net->memory_data_in[0].viraddr)[j + offset] = tmpdata;
+//                         }
+//                     }
+
+//                     gettimeofday(&end, NULL);
+//                     time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
+//                     start = end;
+//                     LOGI("det_set_input_to_NPU_u8_change, time=%lf uS \n", time_total);
+//                     break;
+//                 case DET_AML_FACE_DETECTION:
+//                     break;
+//                 default:
+//                     break;
+//             }
+//         }
+//         else if (hw_type == AML_HARDWARE_ADLA)
+//         {
+//             switch (modelType)
+//             {
+//                 case DET_YOLO_V3:
+//                 case DET_AML_FACE_DETECTION:
+//                     memcpy(net->memory_data_in[0].viraddr,imageData.data,net->mem_config_in[0].mem_size);
+//                     break;
+//                 default:
+//                     break;
+//             }
+//         }
+//     return ret;
+
+// exit:
+//     LOGI("Leave, modeltype:%d", modelType);
+
+//     return ret;
+
+// }
+
 
 static det_status_t det_set_input_to_NPU(input_image_t imageData, det_model_type modelType)
 {
@@ -747,30 +997,74 @@ static det_status_t det_set_input_to_NPU(input_image_t imageData, det_model_type
     int ret = DET_STATUS_OK;
     p_det_network_t net = &network[modelType];
 
+
+    struct timeval start;
+    struct timeval end;
+    double time_total;
+    gettimeofday(&start, NULL);
+
     LOGI("Enter, modeltype:%d", modelType);
+
+    // need check u8 or i8, prepare diff preprocess
+    //zyadd
+    int i,j,tmpdata,nn_width, nn_height, channels,offset;
     ret = check_input_param(imageData, modelType);
     if (ret) {
         LOGE("Check_input_param fail.");
         _SET_STATUS_(ret, DET_STATUS_PARAM_ERROR, exit);
     }
 
-    // need check u8 or i8, prepare diff preprocess
-    switch (modelType)
-    {
-        case DET_YOLO_V3:
-            memcpy(net->memory_data.viraddr,imageData.data,net->mem_config.mem_size);
-            break;
-        case DET_AML_FACE_DETECTION:
-            memcpy(net->memory_data.viraddr,imageData.data,net->mem_config.mem_size);
-            break;
-        default:
-            break;
-    }
+
+    if (hw_type == AML_HARDWARE_VSI_UNIFY)
+        {
+            switch (modelType)
+            {
+                case DET_YOLO_V3:
+                    det_get_model_size(modelType,&nn_width, &nn_height, &channels);
+                    for (i = 0; i < channels; i++)
+                    {
+                        offset = nn_width * nn_height * i;
+                        for (j = 0; j < nn_width * nn_height; j++)
+                        {
+                            tmpdata = (imageData.data[j * channels + i]);
+                            ((unsigned char *)net->memory_data_in[0].viraddr)[j + offset] = tmpdata;
+                        }
+                    }
+
+                    gettimeofday(&end, NULL);
+                    time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
+                    start = end;
+                    LOGI("det_set_input_to_NPU_u8_change, time=%lf uS \n", time_total);
+                    break;
+                case DET_AML_FACE_DETECTION:
+                    break;
+                default:
+                    break;
+            }
+        }
+        else if (hw_type == AML_HARDWARE_ADLA)
+        {
+            switch (modelType)
+            {
+                case DET_YOLO_V3:
+                case DET_AML_FACE_DETECTION:
+                    memcpy(net->memory_data_in[0].viraddr,imageData.data,net->mem_config_in[0].mem_size);
+                    break;
+                default:
+                    break;
+            }
+        }
+
     inData.input_type = INPUT_DMA_DATA;
     inData.input_index = 0;
-    inData.size = net->mem_config.mem_size;
-    inData.input = (uint8_t*)net->memory_data.memory;
+    inData.size = net->mem_config_in[0].mem_size;
+    inData.input = (uint8_t*)net->memory_data_in[0].memory;
     ret = net->process.module_input_set(net->context, &inData);
+
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
+    start = end;
+    LOGI("net->process.module_input_set, time=%lf uS \n", time_total);
 
     if (ret)
     {
@@ -818,7 +1112,7 @@ exit:
 }
 
 
-
+//nn_output *nn_out = NULL;
 // trigger NPU HW thread will call this function
 det_status_t det_trigger_inference(input_image_t imageData, det_model_type modelType)
 {
@@ -869,6 +1163,7 @@ det_status_t det_trigger_inference(input_image_t imageData, det_model_type model
 }
 
 
+
 // analysis output, and notify next pipe , result thread will call this function
 det_status_t det_get_inference_result(pDetResult resultData, det_model_type modelType)
 {
@@ -909,7 +1204,7 @@ det_status_t det_get_inference_result(pDetResult resultData, det_model_type mode
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
     start = end;
-    LOGI("net->process.post_process, time=%lf uS \n", time_total);
+    LOGI("nnsdk, time=%lf uS \n", time_total);
 
     post_process(modelType, out, resultData);
     net->status = NETWORK_PROCESSING;

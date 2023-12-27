@@ -7,7 +7,7 @@ all: $(TARGET)
 
 CXXFLAGS+=-std=c++14 -Wall -Wextra -fPIC -Os
 CFLAGS = -Wall -Wextra -fPIC -Os
-LDFLAGS +=  -Llib/lib64
+#LDFLAGS +=  -Llib/lib64
 LDFLAGS +=  -L$(STAGING_DIR)/usr/lib/ -Wall -Wextra -fPIC -Os -lstdc++ -lm -lpthread -lnnsdk -lnndemo
 
 CFLAGS += \
@@ -39,7 +39,7 @@ clean:
 
 install:
 	install -m 644 inc/*.h $(STAGING_DIR)/usr/include
-	install -m 644 lib/lib64/*.so $(TARGET_DIR)/usr/lib
+#	install -m 644 lib/lib64/*.so $(TARGET_DIR)/usr/lib
 	install -m 644 nn_data/ $(TARGET_DIR)/etc
 	install -m 644 $(OUT_DIR)/$(TARGET) $(TARGET_DIR)/usr/lib
 
