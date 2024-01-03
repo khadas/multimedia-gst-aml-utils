@@ -2,16 +2,18 @@ It's a standalone detect samlpe programme
 
 What is it?
 You can choose this sample to test nndemo
+The save_bin.py script is used to convert jpeg to int8 or uint8 bin
 
 How to use?
-The test program is in /usr/bin/nnsample
-Test data is placed in /data/nn_input
+save_bin.py input_image_path u8 or i8 output_bin_path
 
-A311D2 test command is:
-nnsample 2 /data/nn_input/space_shuttle_416x416_i8.bin
+such as:
+./save_bin.py space_shuttle_416x416.jpg i8 ./
 
-S905D3 and A311D test command is:
-nnsample 2 /data/nn_input/space_shuttle_416x416_u8.bin
+adla model(such as A311D2) need i8 data:
+such as: ./save_bin.py space_shuttle_416x416.jpg i8 ./
 
-If you need to see more detailed test information, please ask the log level to increase:
-such as: export DETECT_LOG_LEVEL=4
+vsi model(such as S905D3) need u8 data
+such as: ./save_bin.py space_shuttle_416x416.jpg u8 ./
+
+If you need more usage information, please see the Readme of dect-sample
