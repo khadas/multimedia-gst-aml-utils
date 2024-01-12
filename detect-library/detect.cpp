@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <dlfcn.h>
+#include <fstream>
 
 #define USE_DMA_BUFFER
 
@@ -21,6 +22,7 @@ using namespace std;
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/time.h>
+
 
 
 static struct timeval g_start;
@@ -996,6 +998,8 @@ static det_status_t det_set_input_to_NPU(input_image_t imageData, det_model_type
     nn_input inData;
     int ret = DET_STATUS_OK;
     p_det_network_t net = &network[modelType];
+    static int currentIndex = 0;
+
 
 
     struct timeval start;
@@ -1053,6 +1057,15 @@ static det_status_t det_set_input_to_NPU(input_image_t imageData, det_model_type
                 default:
                     break;
             }
+            //yi.zhang1 add ,for debug dump frame
+            #if 0
+                string filename = "output_image_" + std::to_string(currentIndex) + ".raw";
+                printf("we now get the %d frame\n",currentIndex);
+                ofstream imageFile(filename, std::ios::binary);
+                imageFile.write(reinterpret_cast<const char*>(imageData.data), imageData.width * imageData.height * imageData.channel);
+                imageFile.close();
+                currentIndex++;
+            #endif
         }
 
     inData.input_type = INPUT_DMA_DATA;
@@ -1110,7 +1123,6 @@ exit:
     LOGI("Leave, modeltype:%d", modelType);
     return ret;
 }
-
 
 //nn_output *nn_out = NULL;
 // trigger NPU HW thread will call this function

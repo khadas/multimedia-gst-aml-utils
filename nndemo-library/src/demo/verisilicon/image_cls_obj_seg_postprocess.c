@@ -18,6 +18,12 @@
 #include "nn_sdk.h"
 #include "nn_util.h"
 #include "cv_postprocess.h"
+
+// for test performance time
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/time.h>
+
 /*-------------------------------------------
                   Functions
 -------------------------------------------*/
@@ -93,13 +99,16 @@ void* postprocess_yolov2(nn_output *pout)
 //post_process in AML_PERF_OUTPUT_GET, now we move to here
 void data_to_fp32(float *new_buffer, unsigned char *old_buffer, int sz, float scale, int zero_point, int type)
 {
-    for (int i = 0; i < sz; i++)
+    if (NN_BUFFER_FORMAT_UINT8 == type)
     {
-        if (NN_BUFFER_FORMAT_UINT8 == type)
+        for (int i = 0; i < sz; i++)
         {
             new_buffer[i] = (float)(((uint8_t*)old_buffer)[i] - zero_point) * scale;
         }
-        else if (NN_BUFFER_FORMAT_INT8 == type)
+    }
+    else if (NN_BUFFER_FORMAT_INT8 == type)
+    {
+        for (int i = 0; i < sz; i++)
         {
             new_buffer[i] = (float)(((int8_t*)old_buffer)[i] - zero_point) * scale;
         }
@@ -113,8 +122,17 @@ void* postprocess_yolov3(nn_output *pout)
     // support multiple thread
     // support INT8 input
     printf("wo select multi thread path\n");
+
+    // unsigned char *yolov3_buffer[3] = {NULL};
+
+    // yolov3_buffer[0] = pout->out[2].buf;
+    // yolov3_buffer[1] = pout->out[1].buf;
+    // yolov3_buffer[2] = pout->out[0].buf;
+
     return yolov3_postprocess_multi_thread(pout);
 #else
+    printf("wo select single thread path\n");
+
     void* out = NULL;
     float *yolov3_buffer[3] = {NULL};
     float *fp32_buffer[3] = {NULL};
@@ -135,22 +153,37 @@ void* postprocess_yolov3(nn_output *pout)
         zp = pout->out[i].param->quant_data.affine.zeroPoint;
         printf("size: %d, data_format: %d, scale: %f, zp: %d\n", size, data_format, scale, zp);
 
+        struct timeval start;
+        struct timeval end;
+        double time_total;
+        gettimeofday(&start, NULL);
+
         fp32_buffer[i] = (float *)malloc(size * sizeof(float));//free
         data_to_fp32(fp32_buffer[i], pout->out[i].buf, size, scale, zp, data_format);
+
+
+        gettimeofday(&end, NULL);
+        time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
+        start = end;
+        printf("data_to_fp32, i=%d time=%lf uS \n", i, time_total);
     }
 
-    if (platform_info.hw_type == AML_HARDWARE_VSI_UNIFY)
-    {
-        yolov3_buffer[0] = fp32_buffer[2];
-        yolov3_buffer[1] = fp32_buffer[1];
-        yolov3_buffer[2] = fp32_buffer[0];
-    }
-    else if (platform_info.hw_type == AML_HARDWARE_ADLA)
-    {
-        yolov3_buffer[0] = fp32_buffer[0];
-        yolov3_buffer[1] = fp32_buffer[1];
-        yolov3_buffer[2] = fp32_buffer[2];
-    }
+    // if (platform_info.hw_type == AML_HARDWARE_VSI_UNIFY)
+    // {
+    //     yolov3_buffer[0] = fp32_buffer[2];
+    //     yolov3_buffer[1] = fp32_buffer[1];
+    //     yolov3_buffer[2] = fp32_buffer[0];
+    // }
+    // else if (platform_info.hw_type == AML_HARDWARE_ADLA)
+    // {
+    //     yolov3_buffer[0] = fp32_buffer[0];
+    //     yolov3_buffer[1] = fp32_buffer[1];
+    //     yolov3_buffer[2] = fp32_buffer[2];
+    // }
+
+    yolov3_buffer[0] = fp32_buffer[2];
+    yolov3_buffer[1] = fp32_buffer[1];
+    yolov3_buffer[2] = fp32_buffer[0];
 
     out = yolov3_postprocess(yolov3_buffer,416,416,13,13,0);
 
@@ -162,7 +195,6 @@ void* postprocess_yolov3(nn_output *pout)
             fp32_buffer[i] = NULL;
         }
     }
-    printf("wo select single thread path\n");
     return out;
 #endif
 }
