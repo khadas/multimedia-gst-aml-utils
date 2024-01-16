@@ -15,8 +15,7 @@ using namespace std;
 #include "nn_demo.h"
 #include "nn_detect.h"
 #include "nn_detect_utils.h"
-#include "detect_log.h"
-
+#include "aml_log.h"
 
 // for test performance time
 #include <stdio.h>
@@ -24,6 +23,8 @@ using namespace std;
 #include <sys/time.h>
 
 
+
+#define AML_LOG_MODULE_NAME "DETECT"
 
 static struct timeval g_start;
 
@@ -914,15 +915,6 @@ exit:
     return ret;
 }
 
-det_status_t det_set_log_config(det_debug_level_t level,det_log_format_t output_format)
-{
-    LOGP("Enter, level:%d", level);
-    det_set_log_level(level, output_format);
-    LOGP("Leave, level:%d", level);
-    return 0;
-}
-
-
 /////////////////////////////////////////////////////////////////////////////////////////////
 // for async mode, better performance
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -1060,7 +1052,7 @@ static det_status_t det_set_input_to_NPU(input_image_t imageData, det_model_type
             //yi.zhang1 add ,for debug dump frame
             #if 0
                 string filename = "output_image_" + std::to_string(currentIndex) + ".raw";
-                printf("we now get the %d frame\n",currentIndex);
+                LOGI("we now get the %d frame\n",currentIndex);
                 ofstream imageFile(filename, std::ios::binary);
                 imageFile.write(reinterpret_cast<const char*>(imageData.data), imageData.width * imageData.height * imageData.channel);
                 imageFile.close();

@@ -363,7 +363,6 @@ gst_aml_vconv_prepare_output_buffer (GstBaseTransform * trans,
   GstMemory *memory =
       gst_allocator_alloc(self->dmabuf_alloc, filter->out_info.size, NULL);
   gst_buffer_insert_memory(*outbuf, -1, memory);
-  LOG_Default("%s add filter->out_info.size:%d", __FUNCTION__, filter->out_info.size);
 
   /* copy the metadata */
   if (bclass->copy_metadata)
@@ -448,7 +447,6 @@ gst_aml_vconv_transform_frame (GstVideoFilter * filter,
       ret = GST_FLOW_ERROR;
       goto transform_end;
     }
-    LOG_Default("%s input_fd:%d", __FUNCTION__, input_fd);
     inBuf.fd[0] = input_fd;
 
     // for multiple plane
@@ -460,7 +458,6 @@ gst_aml_vconv_transform_frame (GstVideoFilter * filter,
         ret = GST_FLOW_ERROR;
         goto transform_end;
       }
-      LOG_Default("%s input_fd:%d", __FUNCTION__, input_fd);
       inBuf.fd[1] = input_fd;
     }
     if (inBuf.plane_number >= 3) {
@@ -471,7 +468,6 @@ gst_aml_vconv_transform_frame (GstVideoFilter * filter,
         ret = GST_FLOW_ERROR;
         goto transform_end;
       }
-      LOG_Default("%s input_fd:%d", __FUNCTION__, input_fd);
       inBuf.fd[2] = input_fd;
     }
   } else {

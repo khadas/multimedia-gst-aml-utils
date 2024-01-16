@@ -81,7 +81,7 @@ void set_carplate_detections(int num, float thresh, plate_box *boxes, float prob
     int i;
     //float left = 0, right = 0, top = 0, bot=0;
     int detect_num = pplate_det_result->detNum;
-    //printf("detect_num = %d\n", detect_num);
+    LOGI("detect_num = %d\n", detect_num);
     float prob ;
     for (i = 0; i < num; i++)
     {
@@ -103,9 +103,8 @@ void set_carplate_detections(int num, float thresh, plate_box *boxes, float prob
                 pplate_det_result->pBox[detect_num].y = boxes[i].y / 288.0;
                 pplate_det_result->pBox[detect_num].w = boxes[i].w / 512.0;
                 pplate_det_result->pBox[detect_num].h = boxes[i].h / 288.0;
-                //printf("detect x = %f,detect y = %f,detect w = %f,detect h = %f,\n",pplate_det_result->pBox[detect_num].x, pplate_det_result->pBox[detect_num].y,pplate_det_result->pBox[detect_num].w,pplate_det_result->pBox[detect_num].h);
                 pplate_det_result->score = prob;
-
+                LOGD("detect x = %f,detect y = %f,detect w = %f,detect h = %f,\n",pplate_det_result->pBox[detect_num].x, pplate_det_result->pBox[detect_num].y,pplate_det_result->pBox[detect_num].w,pplate_det_result->pBox[detect_num].h);
                 for (int j=0 ;j <4; j++)
                 {
                     pplate_det_result->pos[detect_num][j].x = pland[i * 4 + j].x / 512.0;
@@ -195,7 +194,7 @@ void do_nms_sort_plate(plate_box *boxes, float probs[][1], int total, int classe
     sortable_bbox_plate *s = (sortable_bbox_plate *)calloc(total, sizeof(sortable_bbox_plate));
     if (s == NULL)
     {
-        printf("terrible calloc fail\n");
+        LOGE("terrible calloc fail\n");
         return;
     }
     for (i = 0; i < total; ++i) {
@@ -210,9 +209,9 @@ void do_nms_sort_plate(plate_box *boxes, float probs[][1], int total, int classe
         {
             s[i].classId = k;
         }
-        //printf("k:%d,total:%d\n",k,total);
+        LOGD("k:%d,total:%d\n",k,total);
         qsort(s, total, sizeof(sortable_bbox_plate), nms_comparator_plate);
-        //printf("qsort after,index:%d,probs:%f\n",s[0].index,s[0].probs);
+        LOGD("qsort after,index:%d,probs:%f\n",s[0].index,s[0].probs);
         for (i = 0; i < total; ++i)
         {
             if (probs[s[i].index][k] <= 0.02)  //zxw
@@ -385,7 +384,7 @@ int postprocess_plate_det(plate_det_out_t* pplate_det_result)
         }
     }
 
-    //printf("valid_32 = %d, valid_16 = %d, valid_8 = %d\n", valid_32,valid_16,valid_8);
+    LOGD("valid_32 = %d, valid_16 = %d, valid_8 = %d\n", valid_32,valid_16,valid_8);
     if (valid_32 == 1) {
         do_nms_sort_plate(plate_det_pbox32, plate_det_prob32, 288, 1, 0.1);
         if (valid_16 == 1) {
@@ -596,7 +595,7 @@ void* post_textdet(float* score,float* geo)
     float min_x = 0.0,min_y = 0.0,max_x = 0.0,max_y = 0.0;
     if ((geo == NULL) || (score == NULL))
     {
-        printf("ERROR: input ptr is null\n");
+        LOGE("ERROR: input ptr is null\n");
         return NULL;
     }
     std::vector<RotatedRect> boxes;
@@ -649,7 +648,7 @@ void* post_textdet(float* score,float* geo)
             {
                 max_y = vertices[j].y;
             }
-            //printf("point %d,x-%f,y-%f\n",j,vertices[j].x,vertices[j].y);
+            LOGD("point %d,x-%f,y-%f\n",j,vertices[j].x,vertices[j].y);
         }
         textout.textOut.pBox[i].x = min_x;
         textout.textOut.pBox[i].y = min_y;

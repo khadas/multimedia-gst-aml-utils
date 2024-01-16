@@ -1,6 +1,6 @@
 LOCAL_PATH = $(shell pwd)
 TARGET = libnndemo.so
-LDFLAGS += -Wl,--no-as-needed -lstdc++ -lpthread -lz -ldl -lrt -lnnsdk -shared -L$(STAGING_DIR)/usr/lib
+LDFLAGS += -Wl,--no-as-needed -lstdc++ -lpthread -lz -ldl -lrt -lnnsdk -laml-log -shared -L$(STAGING_DIR)/usr/lib
 CFLAGS += \
 	-Wall -Werror -fPIC -Wextra -Os \
 	-Wno-int-conversion -Wno-discarded-qualifiers \

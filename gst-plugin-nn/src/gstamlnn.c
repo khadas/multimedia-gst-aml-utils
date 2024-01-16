@@ -66,8 +66,6 @@
 #ifdef PRINT_FPS
 #define PRINT_FPS_INTERVAL_S 120
 
-#define DET_LOG_LEVEL DET_DEBUG_LEVEL_WARN
-
 static int64_t get_current_time_msec(void) {
   struct timeval tv;
   gettimeofday(&tv, NULL);
@@ -272,9 +270,6 @@ static void gst_aml_nn_init(GstAmlNN *self) {
   g_mutex_init(&pThread->m_mutex);
   pThread->m_ready = FALSE;
 
-  // set debug log level
-  // det_set_log_config(DET_DEBUG_LEVEL_WARN, DET_LOG_TERMINAL);
-  det_set_log_config(DET_LOG_LEVEL, DET_LOG_TERMINAL);
 }
 
 static gboolean open_model(ModelInfo *m) {
@@ -424,8 +419,6 @@ static void gst_aml_nn_get_property(GObject *object, guint prop_id,
 
 static gboolean gst_aml_nn_open(GstBaseTransform *base) {
   GstAmlNN *self = GST_AMLNN(base);
-
-  det_set_log_config(DET_LOG_LEVEL, DET_LOG_TERMINAL);
 
   self->m_gfxhandle = gfx_init();
   if (self->m_gfxhandle == NULL) {

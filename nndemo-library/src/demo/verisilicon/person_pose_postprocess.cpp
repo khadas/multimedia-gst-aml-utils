@@ -1275,7 +1275,7 @@ void* postprocess_headdet(nn_output *pout)
                     }
                     else
                     {
-                        printf("[post_process] The number of boxes exceeds\n");
+                        LOGI("[post_process] The number of boxes exceeds\n");
                     }
                     index += 1;
                 }

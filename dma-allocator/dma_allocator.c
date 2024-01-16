@@ -41,7 +41,8 @@
 #include "dma_allocator.h"
 
 
-
+#include "aml_log.h"
+#define AML_LOG_MODULE_NAME "DMA"
 #define DEVPATH "/dev/dma_heap"
 
 
@@ -49,7 +50,7 @@ int aml_dmabuf_heap_open(char *name)
 {
 	int ret, fd;
 	char buf[256];
-	LOG_Default("%s : %s", __FUNCTION__, name);
+	LOGI("%s : %s", __FUNCTION__, name);
 
 	ret = snprintf(buf, 256, "%s/%s", DEVPATH, name);
 	if (ret < 0) {
@@ -100,7 +101,7 @@ int aml_dmabuf_heap_alloc(int heap_fd, size_t len, int *dmabuf_fd)
 	int ret;
 	ret = dmabuf_heap_alloc_fdflags(heap_fd, len, O_RDWR | O_CLOEXEC, 0,
 					 dmabuf_fd);
-	LOG_Default("ret=%d, heap_fd=%d, len=%ld, dmabuf_fd=%d", ret, heap_fd, len, *dmabuf_fd);
+	LOGI("ret=%d, heap_fd=%d, len=%ld, dmabuf_fd=%d", ret, heap_fd, len, *dmabuf_fd);
 	return ret;
 }
 
@@ -108,7 +109,7 @@ int aml_dmabuf_heap_alloc(int heap_fd, size_t len, int *dmabuf_fd)
 
 int aml_dmabuf_heap_free(int dmabuf_fd)
 {
-	LOG_Default("dmabuf_fd=%d", dmabuf_fd);
+	LOGI("dmabuf_fd=%d", dmabuf_fd);
 	return close(dmabuf_fd);
 }
 

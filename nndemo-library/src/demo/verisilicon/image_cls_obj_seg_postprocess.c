@@ -59,7 +59,7 @@ void process_top5(float *buf,unsigned int num,img_classify_out_t* clsout)
     {
         if (clsout == NULL)
         {
-            printf("%3d: %8.6f\n", MaxClass[i], fMaxProb[i]);
+            LOGI("%3d: %8.6f\n", MaxClass[i], fMaxProb[i]);
         }
         else
         {
@@ -121,7 +121,7 @@ void* postprocess_yolov3(nn_output *pout)
 #if 1
     // support multiple thread
     // support INT8 input
-    printf("wo select multi thread path\n");
+    LOGI("wo select multi thread path\n");
 
     // unsigned char *yolov3_buffer[3] = {NULL};
 
@@ -151,7 +151,7 @@ void* postprocess_yolov3(nn_output *pout)
         data_format = pout->out[i].param->data_format;
         scale = pout->out[i].param->quant_data.affine.scale;
         zp = pout->out[i].param->quant_data.affine.zeroPoint;
-        printf("size: %d, data_format: %d, scale: %f, zp: %d\n", size, data_format, scale, zp);
+        LOGI("size: %d, data_format: %d, scale: %f, zp: %d\n", size, data_format, scale, zp);
 
         struct timeval start;
         struct timeval end;
@@ -165,7 +165,7 @@ void* postprocess_yolov3(nn_output *pout)
         gettimeofday(&end, NULL);
         time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
         start = end;
-        printf("data_to_fp32, i=%d time=%lf uS \n", i, time_total);
+        LOGI("data_to_fp32, i=%d time=%lf uS \n", i, time_total);
     }
 
     // if (platform_info.hw_type == AML_HARDWARE_VSI_UNIFY)

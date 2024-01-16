@@ -14,7 +14,8 @@ CFLAGS += \
 	-I$(STAGING_DIR)/usr/include/
 
 LDFLAGS += -L$(STAGING_DIR)/usr/lib/ \
-			-L$(OUT_DIR)/$(OBJDIR)
+			-L$(OUT_DIR)/$(OBJDIR) \
+			-laml-log
 
 $(info "TARGET_CFLAGS : $(TARGET_CFLAGS)")
 $(info "CXXFLAGS : $(CXXFLAGS)")

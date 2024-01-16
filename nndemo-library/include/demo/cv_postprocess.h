@@ -9,7 +9,6 @@
 
 #ifndef _AMLOGIC_NN_SDK_POSTPROCESS_H
 #define _AMLOGIC_NN_SDK_POSTPROCESS_H
-#include "sdk_log.h"
 #include "nn_demo.h"
 #ifdef __cplusplus
 extern "C" {

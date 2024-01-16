@@ -67,16 +67,9 @@ int nms_comparator(const void *pa, const void *pb)
     sortable_bbox a = *(sortable_bbox *)pa;
     sortable_bbox b = *(sortable_bbox *)pb;
 
-    // printf("\n");
-    // printf("a.index = %d\n", a.index);
-    // printf("a.classId = %d\n", a.classId);
-    // printf("b.index = %d\n", b.index);
-    // printf("b.classId = %d\n", b.classId);
-    // printf("a.probs = %p\n", a.probs);
-    // printf("b.probs = %p\n", b.probs);
-    // printf("a.probs = %f\n", a.probs[a.index][b.classId]);
-    // printf("b.probs = %f\n", b.probs[b.index][b.classId]);
-    // printf("\n");
+    LOGD("a.index=%d, a.classId=%d, b.index=%d, b.classId=%d, a.probs=%p, b.probs=%p\n", a.index, a.classId, b.index,b.classId, a.probs,b.probs);
+    LOGD("a.probs = %f\n", a.probs[a.index][b.classId]);
+    LOGD("b.probs = %f\n", b.probs[b.index][b.classId]);
 
     float diff = a.probs[a.index][b.classId] - b.probs[b.index][b.classId];
     if (diff < 0) return 1;

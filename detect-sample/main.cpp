@@ -43,7 +43,7 @@ static void *read_file(const char *file_path, int *file_size)
 int run_detect_model(int argc, char** argv)
 {
     int ret = 0;
-    int nn_height, nn_width, nn_channel, img_width, img_height;
+    int nn_height, nn_width, nn_channel;
     det_model_type type = DET_YOLOFACE_V2;
     pDetResult resultData;
 
@@ -55,7 +55,6 @@ int run_detect_model(int argc, char** argv)
     type = (det_model_type)atoi(argv[1]);
 
     char* picture_path = argv[2];
-    det_set_log_config(DET_DEBUG_LEVEL_WARN,DET_LOG_TERMINAL);
     cout << "det_set_log_config Debug" <<endl;
 
     //prepare model

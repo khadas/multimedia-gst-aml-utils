@@ -296,12 +296,10 @@ typedef struct _yolov3_param {
 
 static void *yolov3_postprocess_threadfunc(void *arg)
 {
-    // struct timeval start;
-    // struct timeval _start;
-    // struct timeval end;
-    // double time_total;
-    // gettimeofday(&start, NULL);
-    // gettimeofday(&_start, NULL);
+    struct timeval start;
+    struct timeval end;
+    double time_total;
+    gettimeofday(&start, NULL);
 
     // int id = syscall(SYS_gettid);
     yolov3_param *pParam = (yolov3_param *)arg;
@@ -330,12 +328,6 @@ static void *yolov3_postprocess_threadfunc(void *arg)
 
     data_to_fp32(out_data, pParam->in_data, size, scale, zp, data_format);
 
-
-    // gettimeofday(&end, NULL);
-    // time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - _start.tv_usec);
-    // _start = end;
-    // printf("%d_yolov3_postprocess_threadfunc_%d done, time=%lf uS \n", __LINE__, pParam->index, time_total);
-
     // //zy change ,to the out
     // if (out_data != in_data)
     // {
@@ -346,26 +338,18 @@ static void *yolov3_postprocess_threadfunc(void *arg)
     float biases[18] = {10/8., 13/8., 16/8., 30/8., 33/8., 23/8., 30/16., 61/16., 62/16., 45/16., 59/16., 119/16., 116/32., 90/32., 156/32., 198/32., 373/32., 326/32.};
     float threshold = 0.4;
 
-    // //for convert
-    // int tmp_index = 2-pParam->index;
-    // printf("tmp_index = %d, pParam->index = %d\n",tmp_index,pParam->index);
     // process one scale
     yolo_v3_post_process_onescale(out_data, pParam->size, &biases[(pParam->index)*6], &boxes[box1], &pprobs[box1], threshold, &yolov3_box_num_after_filter_arr[pParam->index]);
-
-    // gettimeofday(&end, NULL);
-    // time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - _start.tv_usec);
-    // _start = end;
-    // printf("%d_yolov3_postprocess_threadfunc_%d done, time=%lf uS \n", __LINE__, pParam->index, time_total);
 
     if (NULL != out_data) {
         free(out_data);
         out_data = NULL;
     }
 
-    // gettimeofday(&end, NULL);
-    // time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
-    // start = end;
-    // printf("%d_yolov3_postprocess_threadfunc_%d done, time=%lf uS \n", __LINE__, pParam->index, time_total);
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
+    start = end;
+    LOGI("%d_yolov3_postprocess_threadfunc_%d done, time=%lf uS \n", __LINE__, pParam->index, time_total);
 
     return NULL;
 }
@@ -403,8 +387,8 @@ void* yolov3_postprocess_multi_thread(nn_output *pout)
 
     unsigned int i = 0;
 
-	int nn_width,nn_height, nn_channel;
-	void* objout = NULL;
+    int nn_width,nn_height, nn_channel;
+    void* objout = NULL;
     nn_width = 416;
     nn_height = 416;
     nn_channel = 3;
@@ -426,162 +410,158 @@ void* yolov3_postprocess_multi_thread(nn_output *pout)
     box *boxes = (box *)calloc(box1*(1+4+16), sizeof(box));//13*13*3 + 13*2*13*2**3 + 13*4*13*4*3
     float **pprobs = (float **)calloc(box1*(1+4+16), sizeof(float **));
 
-	////////////////////////////////////////////////////////////////////////////////////////////////
-	// [Guoping] allocate a big memory, and separate them to 3 layers
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    // [Guoping] allocate a big memory, and separate them to 3 layers
     int coords = 4;
     int bb_size = coords + num_class + 1;//85
 
-	// calculate the total probs count
-	int num_box = size[2]/bb_size; //3
-	int layer_probs_cnt = size[0]*size[1]*num_box; //13*13*3
-	int probs_cnt = layer_probs_cnt * (num_class+1); //13*13*3 * 81
+    // calculate the total probs count
+    int num_box = size[2]/bb_size; //3
+    int layer_probs_cnt = size[0]*size[1]*num_box; //13*13*3
+    int probs_cnt = layer_probs_cnt * (num_class+1); //13*13*3 * 81
 
-	num_box = size2[2]/bb_size; //3
-	int layer2_probs_cnt = size2[0]*size2[1]*num_box; //26*26*3
-	probs_cnt += layer2_probs_cnt * (num_class+1); //13*13*3*81+26*26*3*81
+    num_box = size2[2]/bb_size; //3
+    int layer2_probs_cnt = size2[0]*size2[1]*num_box; //26*26*3
+    probs_cnt += layer2_probs_cnt * (num_class+1); //13*13*3*81+26*26*3*81
 
-	num_box = size4[2]/bb_size; //3
-	int layer4_probs_cnt = size4[0]*size4[1]*num_box; //52*52*3
-	probs_cnt += layer4_probs_cnt * (num_class+1); //13*13*3*81+26*26*3*81+52*52*3*81
+    num_box = size4[2]/bb_size; //3
+    int layer4_probs_cnt = size4[0]*size4[1]*num_box; //52*52*3
+    probs_cnt += layer4_probs_cnt * (num_class+1); //13*13*3*81+26*26*3*81+52*52*3*81
 
 
-	// allocate the probs in an array
-	float *probs = (float *)calloc(probs_cnt, sizeof(float));
-	//printf("Size of probs array: %zu bytes\n", probs_cnt * sizeof(float));
+    // allocate the probs in an array
+    float *probs = (float *)calloc(probs_cnt, sizeof(float));
+    LOGI("Size of probs array: %zu bytes\n", probs_cnt * sizeof(float));
 
-	// scale 1
+    // scale 1
     for (j = 0; j < layer_probs_cnt; ++j) {
         pprobs[j] = (float **)(void *)&probs[(num_class+1)*j];
     }
-	// scale 2
+    // scale 2
     for (j = 0; j < layer2_probs_cnt; ++j) {
         //pprobs[box1+j] = (float **)(void *)&probs[layer_probs_cnt+(num_class+1)*j];
         pprobs[box1+j] = (float **)(void *)&probs[(layer_probs_cnt+j)*(num_class+1)];
     }
-	// scale 4
+    // scale 4
     for (j = 0; j < layer4_probs_cnt; ++j) {
         //pprobs[box1*(1+4)+j] = (float **)(void *)&probs[layer_probs_cnt+layer2_probs_cnt+(num_class+1)*j];
         pprobs[box1*(1+4)+j] = (float **)(void *)&probs[(layer_probs_cnt+layer2_probs_cnt+j)*(num_class+1)];
     }
 
-	////////////////////////////////////////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////////////////////////////////////////
 
-	gettimeofday(&end, NULL);
-	time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
-	start = end;
-	printf("probs_cnt=%d, calloc, time=%lf uS \n", probs_cnt, time_total);
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
+    start = end;
+    LOGI("probs_cnt=%d, calloc, time=%lf uS \n", probs_cnt, time_total);
 
-	int err = 0;
-	pthread_t t_thread[3];
-	yolov3_param *pParam = malloc(sizeof(yolov3_param) * 3);
+    int err = 0;
+    pthread_t t_thread[3];
+    yolov3_param *pParam = malloc(sizeof(yolov3_param) * 3);
 
-	int box1_array[3] = {5, 1, 0};
-	int *size_array[3] = {size4, size2, size};
+    int box1_array[3] = {5, 1, 0};
+    int *size_array[3] = {size4, size2, size};
 
-	yolov3_box_num_after_filter_arr[0] = 0;
-	yolov3_box_num_after_filter_arr[1] = 0;
-	yolov3_box_num_after_filter_arr[2] = 0;
+    yolov3_box_num_after_filter_arr[0] = 0;
+    yolov3_box_num_after_filter_arr[1] = 0;
+    yolov3_box_num_after_filter_arr[2] = 0;
 
-	memcpy (&pParam[0].param, pout->out[2].param, sizeof(nn_buffer_params_t));
-	memcpy (&pParam[1].param, pout->out[1].param, sizeof(nn_buffer_params_t));
-	memcpy (&pParam[2].param, pout->out[0].param, sizeof(nn_buffer_params_t));
+    memcpy (&pParam[0].param, pout->out[2].param, sizeof(nn_buffer_params_t));
+    memcpy (&pParam[1].param, pout->out[1].param, sizeof(nn_buffer_params_t));
+    memcpy (&pParam[2].param, pout->out[0].param, sizeof(nn_buffer_params_t));
 
-	pParam[0].in_data = pout->out[2].buf;
-	pParam[1].in_data = pout->out[1].buf;
-	pParam[2].in_data = pout->out[0].buf;
+    pParam[0].in_data = pout->out[2].buf;
+    pParam[1].in_data = pout->out[1].buf;
+    pParam[2].in_data = pout->out[0].buf;
 
-	// scale 1/2 put to another thread
-	for (i = 1; i < 3; i++)
-	{
-		// scaler 0, is the slowest
-		pParam[i].index = i;
-		pParam[i].out_data = NULL;
-		memcpy (pParam[i].size, size_array[i], sizeof(size));
-		pParam[i].boxes = boxes;
-		pParam[i].pprobs = pprobs;
-		pParam[i].box1 = box1 * box1_array[i];
-
-		pthread_create(&t_thread[i], NULL, &yolov3_postprocess_threadfunc, (void *)&pParam[i]);
+    // scale 1/2 put to another thread
+    for (i = 1; i < 3; i++)
+    {
+        // scaler 0, is the slowest
+        pParam[i].index = i;
+        pParam[i].out_data = NULL;
+        memcpy (pParam[i].size, size_array[i], sizeof(size));
+        pParam[i].boxes = boxes;
+        pParam[i].pprobs = pprobs;
+        pParam[i].box1 = box1 * box1_array[i];
+        pthread_create(&t_thread[i], NULL, &yolov3_postprocess_threadfunc, (void *)&pParam[i]);
     }
 
-	// scaler 0 is most Complex, do by this thread
-	i = 0;
-	pParam[i].index = i;
-	pParam[i].out_data = NULL;
-	memcpy (pParam[i].size, size_array[i], sizeof(size));
-	pParam[i].boxes = boxes;
-	pParam[i].pprobs = pprobs;
-	pParam[i].box1 = box1 * box1_array[i];
-	yolov3_postprocess_threadfunc(&pParam[i]);
+    // scaler 0 is most Complex, do by this thread
+    i = 0;
+    pParam[i].index = i;
+    pParam[i].out_data = NULL;
+    memcpy (pParam[i].size, size_array[i], sizeof(size));
+    pParam[i].boxes = boxes;
+    pParam[i].pprobs = pprobs;
+    pParam[i].box1 = box1 * box1_array[i];
+    yolov3_postprocess_threadfunc(&pParam[i]);
 
-	// wait other thread complete
-	for (i = 1; i < 3; i++)
-	{
-		pthread_join(t_thread[i], NULL);
-	}
+    // wait other thread complete
+    for (i = 1; i < 3; i++)
+    {
+        pthread_join(t_thread[i], NULL);
+    }
 
-	if (NULL != pParam)
-	{
-		free(pParam);
-		pParam = NULL;
-	}
+    if (NULL != pParam)
+    {
+        free(pParam);
+        pParam = NULL;
+    }
 
-	gettimeofday(&end, NULL);
-	time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
-	start = end;
-	printf("All yolov3_postprocess_threadfunc done, time=%lf uS \n", time_total);
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
+    start = end;
+    LOGI("All yolov3_postprocess_threadfunc done, time=%lf uS \n", time_total);
 
-	int yolov3_box_num_after_filter = yolov3_box_num_after_filter_arr[0];
-	yolov3_box_num_after_filter += yolov3_box_num_after_filter_arr[1];
-	yolov3_box_num_after_filter += yolov3_box_num_after_filter_arr[2];
-	printf("yolov3_box_num_after_filter=%d \n", yolov3_box_num_after_filter);
+    int yolov3_box_num_after_filter = yolov3_box_num_after_filter_arr[0];
+    yolov3_box_num_after_filter += yolov3_box_num_after_filter_arr[1];
+    yolov3_box_num_after_filter += yolov3_box_num_after_filter_arr[2];
+    LOGI("yolov3_box_num_after_filter=%d \n", yolov3_box_num_after_filter);
 
-	box *tmp_boxes = (box *)calloc(yolov3_box_num_after_filter, sizeof(box));
-	float **tmp_pprobs = (float **)calloc(yolov3_box_num_after_filter, sizeof(float *));
+    box *tmp_boxes = (box *)calloc(yolov3_box_num_after_filter, sizeof(box));
+    float **tmp_pprobs = (float **)calloc(yolov3_box_num_after_filter, sizeof(float *));
 
-	for (index = 0, k = 0; index < box1*(1+4+16); index++)
-	{
-		//printf("[index:%d]fabs 1 \n", index);
-		if ((fabs(boxes[index].prob_obj)-0) > 0.000001)
-		{
-			//printf("[k:%d]fabs 2 \n", k);
-			tmp_pprobs[k] = pprobs[index];
-			tmp_boxes[k] = boxes[index];
-			k++;
-		}
-	}
+    for (index = 0, k = 0; index < box1*(1+4+16); index++)
+    {
+        if ((fabs(boxes[index].prob_obj)-0) > 0.000001)
+        {
+            tmp_pprobs[k] = pprobs[index];
+            tmp_boxes[k] = boxes[index];
+            k++;
+        }
+    }
 
-	do_nms_sort(tmp_boxes, tmp_pprobs, yolov3_box_num_after_filter, num_class, iou_threshold);
-	objout = yolov2_result(yolov3_box_num_after_filter, threshold, tmp_boxes, tmp_pprobs, num_class);
+    do_nms_sort(tmp_boxes, tmp_pprobs, yolov3_box_num_after_filter, num_class, iou_threshold);
+    objout = yolov2_result(yolov3_box_num_after_filter, threshold, tmp_boxes, tmp_pprobs, num_class);
 
-	free(tmp_boxes);
-	tmp_boxes = NULL;
-	free(tmp_pprobs);
-	tmp_pprobs = NULL;
+    free(tmp_boxes);
+    tmp_boxes = NULL;
+    free(tmp_pprobs);
+    tmp_pprobs = NULL;
 
-	////////////////////////////////////////////////////////////////////////////////////////////////
-	// [Guoping] remove free in for loop
-	// for (j = 0; j < box1*(1+4+16); ++j)
-	// {
-	//     free(probs[j]);
-	//     probs[j] = NULL;
-	// }
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    // [Guoping] remove free in for loop
+    // for (j = 0; j < box1*(1+4+16); ++j)
+    // {
+    //     free(probs[j]);
+    //     probs[j] = NULL;
+    // }
 
-	free(probs);
-	probs = NULL;
-	////////////////////////////////////////////////////////////////////////////////////////////////
+    free(probs);
+    probs = NULL;
+    ////////////////////////////////////////////////////////////////////////////////////////////////
 
-	free(boxes);
-	boxes = NULL;
-	free(pprobs);
-	pprobs = NULL;
+    free(boxes);
+    boxes = NULL;
+    free(pprobs);
+    pprobs = NULL;
 
-	gettimeofday(&end, NULL);
-	time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
-	start = end;
-	printf("yolov2_result and free, time=%lf uS \n", time_total);
-
-	return objout;
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
+    start = end;
+    LOGI("yolov2_result and free, time=%lf uS \n", time_total);
+    return objout;
 }
 //////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -591,238 +571,236 @@ void* yolov3_postprocess_multi_thread(nn_output *pout)
 // can move scale 3 to another thread, can reduce about 2ms
 void* yolov3_postprocess(float **predictions, int width, int height, int modelWidth, int modelHeight, int input_num)
 {
-	printf("yolov3_postprocess start\n");
-	struct timeval start;
-	struct timeval end;
-	double time_total;
-	gettimeofday(&start, NULL);
+    LOGI("yolov3_postprocess start\n");
+    struct timeval start;
+    struct timeval end;
+    double time_total;
+    gettimeofday(&start, NULL);
 
-	yolov3_box_num_after_filter_arr[0] = 0;
-	yolov3_box_num_after_filter_arr[1] = 0;
-	yolov3_box_num_after_filter_arr[2] = 0;
+    yolov3_box_num_after_filter_arr[0] = 0;
+    yolov3_box_num_after_filter_arr[1] = 0;
+    yolov3_box_num_after_filter_arr[2] = 0;
 
-	int nn_width,nn_height, nn_channel;
-	void* objout = NULL;
-	nn_width = 416;
-	nn_height = 416;
-	nn_channel = 3;
-	(void)nn_channel;
-	int size[3]={nn_width/32, nn_height/32,85*3};//13 13 85*3
+    int nn_width,nn_height, nn_channel;
+    void* objout = NULL;
+    nn_width = 416;
+    nn_height = 416;
+    nn_channel = 3;
+    (void)nn_channel;
+    int size[3]={nn_width/32, nn_height/32,85*3};//13 13 85*3
 
-	int j, k, index;
-	int num_class = 80;
-	float threshold = 0.4;
-	float iou_threshold = 0.4;
+    int j, k, index;
+    int num_class = 80;
+    float threshold = 0.4;
+    float iou_threshold = 0.4;
 
-	float biases[18] = {10/8., 13/8., 16/8., 30/8., 33/8., 23/8., 30/16., 61/16., 62/16., 45/16., 59/16., 119/16., 116/32., 90/32., 156/32., 198/32., 373/32., 326/32.};
-	int size2[3] = {size[0]*2,size[1]*2,size[2]};//26 26 85*3
-	int size4[3] = {size[0]*4,size[1]*4,size[2]};//52 52 85*3
-	int len1 = size[0]*size[1]*size[2];//43095=13*13*85*3
-	int box1 = len1/(num_class+5);//507=13*13*3
+    float biases[18] = {10/8., 13/8., 16/8., 30/8., 33/8., 23/8., 30/16., 61/16., 62/16., 45/16., 59/16., 119/16., 116/32., 90/32., 156/32., 198/32., 373/32., 326/32.};
+    int size2[3] = {size[0]*2,size[1]*2,size[2]};//26 26 85*3
+    int size4[3] = {size[0]*4,size[1]*4,size[2]};//52 52 85*3
+    int len1 = size[0]*size[1]*size[2];//43095=13*13*85*3
+    int box1 = len1/(num_class+5);//507=13*13*3
 
-	box *boxes = (box *)calloc(box1*(1+4+16), sizeof(box));//13*13*3 + 13*2*13*2**3 + 13*4*13*4*3
-	float **pprobs = (float **)calloc(box1*(1+4+16), sizeof(float **)); //13*13*3*(1+4+16)
+    box *boxes = (box *)calloc(box1*(1+4+16), sizeof(box));//13*13*3 + 13*2*13*2**3 + 13*4*13*4*3
+    float **pprobs = (float **)calloc(box1*(1+4+16), sizeof(float **)); //13*13*3*(1+4+16)
 
-	////////////////////////////////////////////////////////////////////////////////////////////////
-	// [Guoping] allocate a big memory, and separate them to 3 layers
-	int coords = 4;
-	int bb_size = coords + num_class + 1;//85
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    // [Guoping] allocate a big memory, and separate them to 3 layers
+    int coords = 4;
+    int bb_size = coords + num_class + 1;//85
 
-	// calculate the total probs count
-	int num_box = size[2]/bb_size;
-	int layer_probs_cnt = size[0]*size[1]*num_box; //13*13*3
-	int probs_cnt = layer_probs_cnt * (num_class+1);  //13*13*3*81
+    // calculate the total probs count
+    int num_box = size[2]/bb_size;
+    int layer_probs_cnt = size[0]*size[1]*num_box; //13*13*3
+    int probs_cnt = layer_probs_cnt * (num_class+1);  //13*13*3*81
 
-	num_box = size2[2]/bb_size;
-	int layer2_probs_cnt = size2[0]*size2[1]*num_box; //26*26*3
-	probs_cnt += layer2_probs_cnt * (num_class+1);  //+26*26*3*81
+    num_box = size2[2]/bb_size;
+    int layer2_probs_cnt = size2[0]*size2[1]*num_box; //26*26*3
+    probs_cnt += layer2_probs_cnt * (num_class+1);  //+26*26*3*81
 
-	num_box = size4[2]/bb_size;
-	int layer4_probs_cnt = size4[0]*size4[1]*num_box; //52*52*3
-	probs_cnt += layer4_probs_cnt * (num_class+1); // +52*52*3*81
+    num_box = size4[2]/bb_size;
+    int layer4_probs_cnt = size4[0]*size4[1]*num_box; //52*52*3
+    probs_cnt += layer4_probs_cnt * (num_class+1); // +52*52*3*81
 
-	// allocate the probs in an array
-	float *probs = (float *)calloc(probs_cnt, sizeof(float));
+    // allocate the probs in an array
+    float *probs = (float *)calloc(probs_cnt, sizeof(float));
+    LOGI("Size of probs array: %zu bytes\n", probs_cnt * sizeof(float));
 
-	// scale 1
-	for (j = 0; j < layer_probs_cnt; ++j) {
-	pprobs[j] = (float **)(void *)&probs[(num_class+1)*j];
-	}
-	// scale 2
-	for (j = 0; j < layer2_probs_cnt; ++j) {
-	//pprobs[box1+j] = (float **)(void *)&probs[layer_probs_cnt+(num_class+1)*j];
-	pprobs[box1+j] = (float **)(void *)&probs[(layer_probs_cnt+j)*(num_class+1)];
-	}
-	// scale 4
-	for (j = 0; j < layer4_probs_cnt; ++j) {
-	//pprobs[box1*(1+4)+j] = (float **)(void *)&probs[layer_probs_cnt+layer2_probs_cnt+(num_class+1)*j];
-	pprobs[box1*(1+4)+j] = (float **)(void *)&probs[(layer_probs_cnt+layer2_probs_cnt+j)*(num_class+1)];
-	}
+    // scale 1
+    for (j = 0; j < layer_probs_cnt; ++j) {
+    pprobs[j] = (float **)(void *)&probs[(num_class+1)*j];
+    }
+    // scale 2
+    for (j = 0; j < layer2_probs_cnt; ++j) {
+    //pprobs[box1+j] = (float **)(void *)&probs[layer_probs_cnt+(num_class+1)*j];
+    pprobs[box1+j] = (float **)(void *)&probs[(layer_probs_cnt+j)*(num_class+1)];
+    }
+    // scale 4
+    for (j = 0; j < layer4_probs_cnt; ++j) {
+    //pprobs[box1*(1+4)+j] = (float **)(void *)&probs[layer_probs_cnt+layer2_probs_cnt+(num_class+1)*j];
+    pprobs[box1*(1+4)+j] = (float **)(void *)&probs[(layer_probs_cnt+layer2_probs_cnt+j)*(num_class+1)];
+    }
 
-	printf("%s before layer1_addr=%p, layer2_addr=%p, layer3_addr=%p\n",__func__,(void*)&pprobs[0][0], (void*)&pprobs[box1][0],(void*)&pprobs[box1*(1+4)][0]);
+    LOGI("%s before layer1_addr=%p, layer2_addr=%p, layer3_addr=%p\n",__func__,(void*)&pprobs[0][0], (void*)&pprobs[box1][0],(void*)&pprobs[box1*(1+4)][0]);
 
-	////////////////////////////////////////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////////////////////////////////////////
 
-	gettimeofday(&end, NULL);
-	time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
-	start = end;
-	printf("probs_cnt=%d, calloc, time=%lf uS \n", probs_cnt, time_total);
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
+    start = end;
+    LOGI("probs_cnt=%d, calloc, time=%lf uS \n", probs_cnt, time_total);
 
-	yolo_v3_post_process_onescale(predictions[2], size, &biases[12], boxes, &pprobs[0], threshold, &yolov3_box_num_after_filter_arr[2]); //final layer
+    yolo_v3_post_process_onescale(predictions[2], size, &biases[12], boxes, &pprobs[0], threshold, &yolov3_box_num_after_filter_arr[2]); //final layer
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
+    start = end;
+    LOGI("yolo_v3_post_process_onescale(predictions[2], time=%lf uS \n", time_total);
 
-	gettimeofday(&end, NULL);
-	time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
-	start = end;
-	printf("yolo_v3_post_process_onescale(predictions[2], time=%lf uS \n", time_total);
+    yolo_v3_post_process_onescale(predictions[1], size2, &biases[6], &boxes[box1], &pprobs[box1], threshold, &yolov3_box_num_after_filter_arr[1]);
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
+    start = end;
+    LOGI("yolo_v3_post_process_onescale(predictions[1], time=%lf uS \n", time_total);
 
-	yolo_v3_post_process_onescale(predictions[1], size2, &biases[6], &boxes[box1], &pprobs[box1], threshold, &yolov3_box_num_after_filter_arr[1]);
+    yolo_v3_post_process_onescale(predictions[0], size4, &biases[0],  &boxes[box1*(1+4)], &pprobs[box1*(1+4)], threshold, &yolov3_box_num_after_filter_arr[0]);
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
+    start = end;
+    LOGI("yolo_v3_post_process_onescale(predictions[0], time=%lf uS \n", time_total);
 
-	gettimeofday(&end, NULL);
-	time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
-	start = end;
-	printf("yolo_v3_post_process_onescale(predictions[1], time=%lf uS \n", time_total);
+    int yolov3_box_num_after_filter = yolov3_box_num_after_filter_arr[0];
+    yolov3_box_num_after_filter += yolov3_box_num_after_filter_arr[1];
+    yolov3_box_num_after_filter += yolov3_box_num_after_filter_arr[2];
+    LOGI("yolov3_box_num_after_filter=%d \n", yolov3_box_num_after_filter);
 
-	yolo_v3_post_process_onescale(predictions[0], size4, &biases[0],  &boxes[box1*(1+4)], &pprobs[box1*(1+4)], threshold, &yolov3_box_num_after_filter_arr[0]);
+    box *tmp_boxes = (box *)calloc(yolov3_box_num_after_filter, sizeof(box));
+    float **tmp_pprobs = (float **)calloc(yolov3_box_num_after_filter, sizeof(float *));
 
-	gettimeofday(&end, NULL);
-	time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
-	start = end;
-	printf("yolo_v3_post_process_onescale(predictions[0], time=%lf uS \n", time_total);
+    for (index = 0, k = 0; index < box1*(1+4+16); index++)
+    {
+        if ((fabs(boxes[index].prob_obj)-0) > 0.000001)
+        {
+            tmp_pprobs[k] = pprobs[index];
+            tmp_boxes[k] = boxes[index];
+            k++;
+        }
+    }
 
-	int yolov3_box_num_after_filter = yolov3_box_num_after_filter_arr[0];
-	yolov3_box_num_after_filter += yolov3_box_num_after_filter_arr[1];
-	yolov3_box_num_after_filter += yolov3_box_num_after_filter_arr[2];
-	printf("yolov3_box_num_after_filter=%d \n", yolov3_box_num_after_filter);
+    do_nms_sort(tmp_boxes, tmp_pprobs, yolov3_box_num_after_filter, num_class, iou_threshold);
+    LOGI("do_nms_sort done\n");
+    objout = yolov2_result(yolov3_box_num_after_filter, threshold, tmp_boxes, tmp_pprobs, num_class);
+    LOGI("yolov2_result done\n");
 
-	box *tmp_boxes = (box *)calloc(yolov3_box_num_after_filter, sizeof(box));
-	float **tmp_pprobs = (float **)calloc(yolov3_box_num_after_filter, sizeof(float *));
+    free(tmp_boxes);
+    tmp_boxes = NULL;
+    free(tmp_pprobs);
+    tmp_pprobs = NULL;
 
-	for (index = 0, k = 0; index < box1*(1+4+16); index++)
-	{
-		if ((fabs(boxes[index].prob_obj)-0) > 0.000001)
-		{
-			tmp_pprobs[k] = pprobs[index];
-			tmp_boxes[k] = boxes[index];
-			k++;
-		}
-	}
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    // [Guoping] remove free in for loop
+    // for (j = 0; j < box1*(1+4+16); ++j)
+    // {
+    //     free(probs[j]);
+    //     probs[j] = NULL;
+    // }
 
+    free(probs);
+    probs = NULL;
+    ////////////////////////////////////////////////////////////////////////////////////////////////
 
-	do_nms_sort(tmp_boxes, tmp_pprobs, yolov3_box_num_after_filter, num_class, iou_threshold);
-	objout = yolov2_result(yolov3_box_num_after_filter, threshold, tmp_boxes, tmp_pprobs, num_class);
+    free(boxes);
+    boxes = NULL;
+    free(pprobs);
+    pprobs = NULL;
 
+    gettimeofday(&end, NULL);
+    time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
+    start = end;
+    LOGI("yolov2_result and free, time=%lf uS \n", time_total);
 
-	free(tmp_boxes);
-	tmp_boxes = NULL;
-	free(tmp_pprobs);
-	tmp_pprobs = NULL;
-
-	////////////////////////////////////////////////////////////////////////////////////////////////
-	// [Guoping] remove free in for loop
-	// for (j = 0; j < box1*(1+4+16); ++j)
-	// {
-	//     free(probs[j]);
-	//     probs[j] = NULL;
-	// }
-
-	free(probs);
-	probs = NULL;
-	////////////////////////////////////////////////////////////////////////////////////////////////
-
-	free(boxes);
-	boxes = NULL;
-	free(pprobs);
-	pprobs = NULL;
-
-	gettimeofday(&end, NULL);
-	time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
-	start = end;
-	printf("yolov2_result and free, time=%lf uS \n", time_total);
-
-	return objout;
+    return objout;
 }
 
 void* yoloface_detect_postprocess(float *predictions, int width, int height, int modelWidth, int modelHeight, int input_num)
 {
-	int i,j,n;
-	float threshold = 0.24;
-	float iou_threshold = 0.4;
-	int num_class = 1;
-	int num_box = 5;
-	int grid_size = 13;
-	float biases[10] = {1.08,1.19,  3.42,4.41,  6.63,11.38,  9.42,5.11,  16.62,10.52};
-	void* objout = NULL;
+    int i,j,n;
+    float threshold = 0.24;
+    float iou_threshold = 0.4;
+    int num_class = 1;
+    int num_box = 5;
+    int grid_size = 13;
+    float biases[10] = {1.08,1.19,  3.42,4.41,  6.63,11.38,  9.42,5.11,  16.62,10.52};
+    void* objout = NULL;
 
-	box *boxes = (box *)calloc(modelWidth*modelHeight*num_box, sizeof(box));
-	float **probs = (float **)calloc(modelWidth*modelHeight*num_box, sizeof(float *));
+    box *boxes = (box *)calloc(modelWidth*modelHeight*num_box, sizeof(box));
+    float **probs = (float **)calloc(modelWidth*modelHeight*num_box, sizeof(float *));
 
-	for (j = 0; j < modelWidth*modelHeight*num_box; ++j)
-	{
-		probs[j] = (float *)calloc(num_class+1, sizeof(float *));// calloc "num_class+1" float for every W*H*num_box
-	}
-	{
-		int i,b;
-		int coords = 4,classes = 1;
-		int size = coords + classes + 1;
-		int w = 13;
-		int h = 13;
-		int n = 5;
-		int batch = 1;
+    for (j = 0; j < modelWidth*modelHeight*num_box; ++j)
+    {
+        probs[j] = (float *)calloc(num_class+1, sizeof(float *));// calloc "num_class+1" float for every W*H*num_box
+    }
+    {
+        int i,b;
+        int coords = 4,classes = 1;
+        int size = coords + classes + 1;
+        int w = 13;
+        int h = 13;
+        int n = 5;
+        int batch = 1;
 
-		flatten(predictions, w*h, size*n, batch, 1);
+        flatten(predictions, w*h, size*n, batch, 1);
 
-		for (b = 0; b < batch; ++b)
-		{
-			for (i = 0; i < h*w*n; ++i)
-			{
-				int index = size*i + b*input_num;
-				predictions[index + 4] = logistic_activate(predictions[index + 4]);
-			}
-		}
-		for (b = 0; b < batch; ++b)
-		{
-			for (i = 0; i < h*w*n; ++i)
-			{
-				int index = size*i + b*input_num;
-				softmax(predictions + index + 5, classes, 1, predictions + index + 5);
-			}
-		}
-	}
+        for (b = 0; b < batch; ++b)
+        {
+            for (i = 0; i < h*w*n; ++i)
+            {
+                int index = size*i + b*input_num;
+                predictions[index + 4] = logistic_activate(predictions[index + 4]);
+            }
+        }
+        for (b = 0; b < batch; ++b)
+        {
+            for (i = 0; i < h*w*n; ++i)
+            {
+                int index = size*i + b*input_num;
+                softmax(predictions + index + 5, classes, 1, predictions + index + 5);
+            }
+        }
+    }
 
-	for (i = 0; i < modelWidth*modelHeight; ++i)
-	{
-		int row = i / modelWidth;
-		int col = i % modelWidth;
-		for (n = 0; n < num_box; ++n)
-		{
-			int index = i*num_box + n;
-			int p_index = index * (num_class + 5) + 4;
-			float scale = predictions[p_index];
-			int box_index = index * (num_class + 5);
-			int class_index = 0;
-			boxes[index] = get_region_box(predictions, biases, n, box_index, col, row, modelWidth, modelHeight);
-			class_index = index * (num_class + 5) + 5;
-			for (j = 0; j < num_class; ++j)
-			{
-				float prob = scale*predictions[class_index+j];
-				probs[index][j] = (prob > threshold) ? prob : 0;
-			}
-		}
-	}
+    for (i = 0; i < modelWidth*modelHeight; ++i)
+    {
+        int row = i / modelWidth;
+        int col = i % modelWidth;
+        for (n = 0; n < num_box; ++n)
+        {
+            int index = i*num_box + n;
+            int p_index = index * (num_class + 5) + 4;
+            float scale = predictions[p_index];
+            int box_index = index * (num_class + 5);
+            int class_index = 0;
+            boxes[index] = get_region_box(predictions, biases, n, box_index, col, row, modelWidth, modelHeight);
+            class_index = index * (num_class + 5) + 5;
+            for (j = 0; j < num_class; ++j)
+            {
+                float prob = scale*predictions[class_index+j];
+                probs[index][j] = (prob > threshold) ? prob : 0;
+            }
+        }
+    }
 
-	do_nms_sort(boxes, probs, grid_size*grid_size*num_box, num_class, iou_threshold);
-	objout = yolov2_result(grid_size*grid_size*num_box, threshold, boxes, probs, num_class);
+    do_nms_sort(boxes, probs, grid_size*grid_size*num_box, num_class, iou_threshold);
+    objout = yolov2_result(grid_size*grid_size*num_box, threshold, boxes, probs, num_class);
 
-	free(boxes);
-	boxes = NULL;
+    free(boxes);
+    boxes = NULL;
 
-	for (j = 0; j < grid_size*grid_size*num_box; ++j) {
-		free(probs[j]);
-		probs[j] = NULL;
-	}
+    for (j = 0; j < grid_size*grid_size*num_box; ++j) {
+        free(probs[j]);
+        probs[j] = NULL;
+    }
 
-	free(probs);
-	probs = NULL;
+    free(probs);
+    probs = NULL;
 
-	return objout;
+    return objout;
 }

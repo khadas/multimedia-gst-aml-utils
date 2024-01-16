@@ -1,13 +1,13 @@
-TARGET = libdetect-library.so
+TARGET = libaml-log.so
 OUT_DIR ?= .
 
 SRCS=$(wildcard *.cpp *.cc *.c)
 
 all: $(TARGET)
 
-CXXFLAGS+=-std=c++14 -Wall -Wextra -fPIC -Os
-CFLAGS = -Wall -Wextra -fPIC -Os
-LDFLAGS +=  -L$(STAGING_DIR)/usr/lib/ -Wall -Wextra -fPIC -Os -lstdc++ -lm -lpthread -lnnsdk -lnndemo -laml-log
+CFLAGS = -Wall -Werror -Wextra -fPIC -Os
+CFLAGS += $(shell $(PKG_CONFIG) --cflags )
+LDFLAGS += -Wall -Wextra -fPIC -Os $(shell $(PKG_CONFIG) --libs )
 
 CFLAGS += \
 	-I inc/ \
@@ -38,7 +38,5 @@ clean:
 
 install:
 	install -m 644 inc/*.h $(STAGING_DIR)/usr/include
-	install -m 644 nn_data/ $(TARGET_DIR)/etc
-	install -m 644 nn_input/ $(TARGET_DIR)/data
 	install -m 644 $(OUT_DIR)/$(TARGET) $(TARGET_DIR)/usr/lib
 

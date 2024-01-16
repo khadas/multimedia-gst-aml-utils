@@ -14,7 +14,6 @@ det_status_t det_get_param(det_model_type modelType, det_param_t *param);
 det_status_t det_set_input(input_image_t imageData, det_model_type modelType);      ///<set input image to network
 det_status_t det_get_result(pDetResult resultData, det_model_type modelType);       ///<get detection result,this will block until process end
 det_status_t det_release_model(det_model_type modelType);       ///<get detection result,this will block until process end
-det_status_t det_set_log_config(det_debug_level_t level,det_log_format_t output_format);  ///<set log config
 
 // for async
 det_status_t det_trigger_inference(input_image_t imageData, det_model_type modelType);

@@ -26,8 +26,6 @@
 #ifndef _DMABUF_ALLOCATOR_H
 #define _DMABUF_ALLOCATOR_H
 
-#include "dma_log.h"
-
 
 
 /*************************************************

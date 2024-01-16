@@ -8,7 +8,7 @@ CXXFLAGS+=-std=c++14 -Wall -Wextra -fPIC -Os
 #CFLAGS = -Wall -Wextra -fPIC -Os
 
 #LDFLAGS += -L$(STAGING_DIR)/usr/lib/ -Wall -Wextra -fPIC -Os -lstdc++ -lm -ldl -lz -lrt -lpthread -lnndemo -lnnsdk -ldetect-library
-LDFLAGS +=  -L$(STAGING_DIR)/usr/lib/ -Wall -Wextra -fPIC -Os -lstdc++ -lm -lpthread -ldetect-library -lnnsdk -lnndemo
+LDFLAGS +=  -L$(STAGING_DIR)/usr/lib/ -Wall -Wextra -fPIC -Os -lstdc++ -lm -lpthread -ldetect-library -lnnsdk -lnndemo -laml-log
 
 
 CFLAGS += \

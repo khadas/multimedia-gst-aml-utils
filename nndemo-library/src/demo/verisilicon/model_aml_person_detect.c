@@ -63,7 +63,7 @@ void person_do_nms_sort(box *boxes, float probs[][1], int total, int classes, fl
     sortable_bbox_person *s = (sortable_bbox_person *)calloc(total, sizeof(sortable_bbox_person));
 	if (s == NULL)
 	{
-		printf("terrible calloc fail\n");
+		LOGE("terrible calloc fail\n");
 		return;
 	}
     for (i = 0; i < total; ++i)
