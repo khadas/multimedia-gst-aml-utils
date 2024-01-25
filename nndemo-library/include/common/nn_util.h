@@ -10,8 +10,7 @@
 #ifndef _NN_UTIL_H
 #define _NN_UTIL_H
 
-#include "aml_log.h"
-#define AML_LOG_MODULE_NAME "NNDEMO"
+#include <cutils/log.h>
 
 
 #ifdef __cplusplus

@@ -11,6 +11,8 @@
 /*-------------------------------------------
                 Includes
 -------------------------------------------*/
+#define LOG_TAG "face_det_attr_reg_postprocess"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

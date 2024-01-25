@@ -10,6 +10,8 @@
 /*-------------------------------------------
                 Includes
 -------------------------------------------*/
+#define LOG_TAG "cv_postprocess"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

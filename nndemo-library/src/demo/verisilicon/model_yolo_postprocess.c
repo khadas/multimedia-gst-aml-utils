@@ -10,6 +10,8 @@
 /*-------------------------------------------
                 Includes
 -------------------------------------------*/
+#define LOG_TAG "model_yolo_postprocess"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -349,7 +351,7 @@ static void *yolov3_postprocess_threadfunc(void *arg)
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
     start = end;
-    LOGI("%d_yolov3_postprocess_threadfunc_%d done, time=%lf uS \n", __LINE__, pParam->index, time_total);
+    ALOGI("[%s: %d ] yolov3_postprocess_threadfunc_%d done, time=%lf uS \n", __func__, __LINE__, pParam->index, time_total);
 
     return NULL;
 }
@@ -431,7 +433,7 @@ void* yolov3_postprocess_multi_thread(nn_output *pout)
 
     // allocate the probs in an array
     float *probs = (float *)calloc(probs_cnt, sizeof(float));
-    LOGI("Size of probs array: %zu bytes\n", probs_cnt * sizeof(float));
+    ALOGI("[%s: %d ] Size of probs array: %zu bytes\n", __func__, __LINE__, probs_cnt * sizeof(float));
 
     // scale 1
     for (j = 0; j < layer_probs_cnt; ++j) {
@@ -453,7 +455,7 @@ void* yolov3_postprocess_multi_thread(nn_output *pout)
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
     start = end;
-    LOGI("probs_cnt=%d, calloc, time=%lf uS \n", probs_cnt, time_total);
+    ALOGI("[%s: %d ] probs_cnt=%d, calloc, time=%lf uS \n", __func__, __LINE__, probs_cnt, time_total);
 
     int err = 0;
     pthread_t t_thread[3];
@@ -512,12 +514,12 @@ void* yolov3_postprocess_multi_thread(nn_output *pout)
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
     start = end;
-    LOGI("All yolov3_postprocess_threadfunc done, time=%lf uS \n", time_total);
+    ALOGI("[%s: %d ] All yolov3_postprocess_threadfunc done, time=%lf uS \n", __func__, __LINE__, time_total);
 
     int yolov3_box_num_after_filter = yolov3_box_num_after_filter_arr[0];
     yolov3_box_num_after_filter += yolov3_box_num_after_filter_arr[1];
     yolov3_box_num_after_filter += yolov3_box_num_after_filter_arr[2];
-    LOGI("yolov3_box_num_after_filter=%d \n", yolov3_box_num_after_filter);
+    ALOGI("[%s: %d ] yolov3_box_num_after_filter=%d \n", __func__, __LINE__, yolov3_box_num_after_filter);
 
     box *tmp_boxes = (box *)calloc(yolov3_box_num_after_filter, sizeof(box));
     float **tmp_pprobs = (float **)calloc(yolov3_box_num_after_filter, sizeof(float *));
@@ -560,7 +562,7 @@ void* yolov3_postprocess_multi_thread(nn_output *pout)
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
     start = end;
-    LOGI("yolov2_result and free, time=%lf uS \n", time_total);
+    ALOGI("[%s: %d ] yolov2_result and free, time=%lf uS \n", __func__, __LINE__, time_total);
     return objout;
 }
 //////////////////////////////////////////////////////////////////////////////////////////////
@@ -571,7 +573,7 @@ void* yolov3_postprocess_multi_thread(nn_output *pout)
 // can move scale 3 to another thread, can reduce about 2ms
 void* yolov3_postprocess(float **predictions, int width, int height, int modelWidth, int modelHeight, int input_num)
 {
-    LOGI("yolov3_postprocess start\n");
+    ALOGI("[%s: %d ] yolov3_postprocess start\n", __func__, __LINE__);
     struct timeval start;
     struct timeval end;
     double time_total;
@@ -623,7 +625,7 @@ void* yolov3_postprocess(float **predictions, int width, int height, int modelWi
 
     // allocate the probs in an array
     float *probs = (float *)calloc(probs_cnt, sizeof(float));
-    LOGI("Size of probs array: %zu bytes\n", probs_cnt * sizeof(float));
+    ALOGI("[%s: %d ] Size of probs array: %zu bytes\n", __func__, __LINE__, probs_cnt * sizeof(float));
 
     // scale 1
     for (j = 0; j < layer_probs_cnt; ++j) {
@@ -640,37 +642,37 @@ void* yolov3_postprocess(float **predictions, int width, int height, int modelWi
     pprobs[box1*(1+4)+j] = (float **)(void *)&probs[(layer_probs_cnt+layer2_probs_cnt+j)*(num_class+1)];
     }
 
-    LOGI("%s before layer1_addr=%p, layer2_addr=%p, layer3_addr=%p\n",__func__,(void*)&pprobs[0][0], (void*)&pprobs[box1][0],(void*)&pprobs[box1*(1+4)][0]);
+    ALOGI("[%s: %d ] before layer1_addr=%p, layer2_addr=%p, layer3_addr=%p\n",__func__, __LINE__, (void*)&pprobs[0][0], (void*)&pprobs[box1][0],(void*)&pprobs[box1*(1+4)][0]);
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
 
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
     start = end;
-    LOGI("probs_cnt=%d, calloc, time=%lf uS \n", probs_cnt, time_total);
+    ALOGI("[%s: %d ] probs_cnt=%d, calloc, time=%lf uS \n", __func__, __LINE__, probs_cnt, time_total);
 
     yolo_v3_post_process_onescale(predictions[2], size, &biases[12], boxes, &pprobs[0], threshold, &yolov3_box_num_after_filter_arr[2]); //final layer
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
     start = end;
-    LOGI("yolo_v3_post_process_onescale(predictions[2], time=%lf uS \n", time_total);
+    ALOGI("[%s: %d ] yolo_v3_post_process_onescale(predictions[2], time=%lf uS \n",  __func__, __LINE__, time_total);
 
     yolo_v3_post_process_onescale(predictions[1], size2, &biases[6], &boxes[box1], &pprobs[box1], threshold, &yolov3_box_num_after_filter_arr[1]);
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
     start = end;
-    LOGI("yolo_v3_post_process_onescale(predictions[1], time=%lf uS \n", time_total);
+    ALOGI("[%s: %d ] yolo_v3_post_process_onescale(predictions[1], time=%lf uS \n",  __func__, __LINE__, time_total);
 
     yolo_v3_post_process_onescale(predictions[0], size4, &biases[0],  &boxes[box1*(1+4)], &pprobs[box1*(1+4)], threshold, &yolov3_box_num_after_filter_arr[0]);
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
     start = end;
-    LOGI("yolo_v3_post_process_onescale(predictions[0], time=%lf uS \n", time_total);
+    ALOGI("[%s: %d ] yolo_v3_post_process_onescale(predictions[0], time=%lf uS \n", __func__, __LINE__, time_total);
 
     int yolov3_box_num_after_filter = yolov3_box_num_after_filter_arr[0];
     yolov3_box_num_after_filter += yolov3_box_num_after_filter_arr[1];
     yolov3_box_num_after_filter += yolov3_box_num_after_filter_arr[2];
-    LOGI("yolov3_box_num_after_filter=%d \n", yolov3_box_num_after_filter);
+    ALOGI("[%s: %d ] yolov3_box_num_after_filter=%d \n", __func__, __LINE__, yolov3_box_num_after_filter);
 
     box *tmp_boxes = (box *)calloc(yolov3_box_num_after_filter, sizeof(box));
     float **tmp_pprobs = (float **)calloc(yolov3_box_num_after_filter, sizeof(float *));
@@ -686,9 +688,9 @@ void* yolov3_postprocess(float **predictions, int width, int height, int modelWi
     }
 
     do_nms_sort(tmp_boxes, tmp_pprobs, yolov3_box_num_after_filter, num_class, iou_threshold);
-    LOGI("do_nms_sort done\n");
+    ALOGI("[%s: %d ] do_nms_sort done\n", __func__, __LINE__);
     objout = yolov2_result(yolov3_box_num_after_filter, threshold, tmp_boxes, tmp_pprobs, num_class);
-    LOGI("yolov2_result done\n");
+    ALOGI("[%s: %d ] yolov2_result done\n", __func__, __LINE__);
 
     free(tmp_boxes);
     tmp_boxes = NULL;
@@ -715,7 +717,7 @@ void* yolov3_postprocess(float **predictions, int width, int height, int modelWi
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
     start = end;
-    LOGI("yolov2_result and free, time=%lf uS \n", time_total);
+    ALOGI("[%s: %d ] yolov2_result and free, time=%lf uS \n", __func__, __LINE__, time_total);
 
     return objout;
 }

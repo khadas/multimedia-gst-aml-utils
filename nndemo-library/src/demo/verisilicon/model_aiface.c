@@ -11,6 +11,8 @@
 /*-------------------------------------------
                 Includes
 -------------------------------------------*/
+#define LOG_TAG "model_aiface"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -393,15 +395,15 @@ static void centerface_nms(FaceInfo *boxes, int faceNum, CFaceInfo *filterOutBox
             {
                 CFaceRect cbox = {boxes[index].cBox.f32X1, boxes[index].cBox.f32Y1, boxes[index].cBox.f32X2,
                                   boxes[index].cBox.f32Y2};
-                LOGD("final cbox =%f, %f, %f, %f", cbox.f32X1, cbox.f32Y1, cbox.f32X2, cbox.f32Y2);
+                ALOGD("[%s: %d ] final cbox =%f, %f, %f, %f", __func__, __LINE__, cbox.f32X1, cbox.f32Y1, cbox.f32X2, cbox.f32Y2);
                 CFacePts cpts;
                 for (int i = 0; i < 5; i++)
                 {
                     cpts.f32X[i] = boxes[index].cPts.f32X[i];
                     cpts.f32Y[i] = boxes[index].cPts.f32Y[i];
-                    LOGD("final cpts =%f, %f", cpts.f32X[i], cpts.f32Y[i]);
+                    ALOGD("[%s: %d ] final cpts =%f, %f", __func__, __LINE__, cpts.f32X[i], cpts.f32Y[i]);
                 }
-                LOGD("f32Score=%f", boxes[index].f32Score);
+                ALOGD("[%s: %d ] f32Score=%f", __func__, __LINE__, boxes[index].f32Score);
                 filterOutBoxes[tmpFinalNum].cBox = cbox;
                 filterOutBoxes[tmpFinalNum].cPts = cpts;
                 filterOutBoxes[tmpFinalNum].f32Score = boxes[index].f32Score;

@@ -10,6 +10,7 @@
 /*-------------------------------------------
                 Includes
 -------------------------------------------*/
+#define LOG_TAG "model_rfb_face_detect"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -134,9 +135,9 @@ int rfb_nms_comparator(const void *pa, const void *pb)
 {
     sortable_bbox_rfb a = *(sortable_bbox_rfb *)pa;
     sortable_bbox_rfb b = *(sortable_bbox_rfb *)pb;
-    LOGD("before diff,%f,%f\n",a.probs,b.probs);
+    ALOGD("[%s: %d ] before diff,%f,%f\n",  __func__, __LINE__, a.probs,b.probs);
     float diff = a.probs - b.probs;
-    LOGD("after diff\n");
+    ALOGD("[%s: %d ] after diff\n", __func__, __LINE__);
     if (diff < 0) return 1;
     else if (diff > 0) return -1;
     return 0;
@@ -149,7 +150,7 @@ void rfb_do_nms_sort(box *boxes, float probs[][1], int total, int classes, float
     sortable_bbox_rfb *s = (sortable_bbox_rfb *)calloc(total, sizeof(sortable_bbox_rfb));
     if (s == NULL)
     {
-        printf("terrible calloc fail\n");
+        ALOGE("[%s: %d ] terrible calloc fail", __func__, __LINE__);
         return;
     }
     for (i = 0; i < total; ++i) {
@@ -178,7 +179,8 @@ void rfb_do_nms_sort(box *boxes, float probs[][1], int total, int classes, float
             }
         }
     }
-    LOGI("do nms over\n");
+    ALOGI("[%s: %d ] do nms over", __func__, __LINE__);
+
     free(s);
 }
 
@@ -198,7 +200,7 @@ void face_rfb_result(int num, float thresh, box *boxes, float probs[][1],landmar
                 {
                     break;
                 }
-                LOGD("prob = %f\n",prob );
+                ALOGD("[%s: %d ] prob = %f\n", __func__, __LINE__, prob);
                 pface_rfb_det_result->facebox[detect_num].score = prob;
                 pface_rfb_det_result->facebox[detect_num].x = boxes[i].x / 320.0;
                 pface_rfb_det_result->facebox[detect_num].y = boxes[i].y / 320.0;
@@ -212,7 +214,7 @@ void face_rfb_result(int num, float thresh, box *boxes, float probs[][1],landmar
                 if (pface_rfb_det_result->facebox[detect_num].y >= 1 ) pface_rfb_det_result->facebox[detect_num].y =0.999999;
                 if (pface_rfb_det_result->facebox[detect_num].w >= 1 ) pface_rfb_det_result->facebox[detect_num].w =0.999999;
                 if (pface_rfb_det_result->facebox[detect_num].h >= 1 ) pface_rfb_det_result->facebox[detect_num].h =0.999999;
-                LOGD("boxes[%d].x = %f,boxes[%d].y = %f,boxes[%d].w = %f,boxes[%d].h = %f\n",i,boxes[i].x,i,boxes[i].y,i,boxes[i].w,i,boxes[i].h );
+                ALOGD("[%s: %d ] boxes[%d].x = %f,boxes[%d].y = %f,boxes[%d].w = %f,boxes[%d].h = %f\n", __func__, __LINE__, i,boxes[i].x,i,boxes[i].y,i,boxes[i].w,i,boxes[i].h );
                 for (j=0 ;j <5 ; j++)
                 {
                     pface_rfb_det_result->pos[detect_num][j].x = pland[i * 5 + j].x / 320.0;
@@ -221,7 +223,7 @@ void face_rfb_result(int num, float thresh, box *boxes, float probs[][1],landmar
                     if (pface_rfb_det_result->pos[detect_num][j].x >= 1) pface_rfb_det_result->pos[detect_num][j].x=0.997;
                     if (pface_rfb_det_result->pos[detect_num][j].y <= 0) pface_rfb_det_result->pos[detect_num][j].y=0.001;
                     if (pface_rfb_det_result->pos[detect_num][j].y >= 1) pface_rfb_det_result->pos[detect_num][j].y=0.997;
-                    LOGD("point number =%d,rawData-X:%.5f,Y:%.5f\n" , j, pface_rfb_det_result->pos[detect_num][j].x, pface_rfb_det_result->pos[detect_num][j].y);
+                    ALOGD("[%s: %d ] point number =%d,rawData-X:%.5f,Y:%.5f\n",  __func__, __LINE__, j, pface_rfb_det_result->pos[detect_num][j].x, pface_rfb_det_result->pos[detect_num][j].y);
                 }
                 detect_num++;
             }
@@ -447,13 +449,13 @@ int face_rfb_detect_postprocess(face_rfb_detect_out_t* pface_rfb_det_result )
                     rbox8[y][x][idx].y = (pred_ctry-0.5*(predh));
                     rbox8[y][x][idx].w = predw;
                     rbox8[y][x][idx].h = predh;
-                    LOGD("8 x=%f,y=%f,w=%f,h=%f\n",rbox8[y][x][idx].x,rbox8[y][x][idx].y,rbox8[y][x][idx].w,rbox8[y][x][idx].h);
+                    ALOGD("[%s: %d ] 8 x=%f,y=%f,w=%f,h=%f\n", __func__, __LINE__, rbox8[y][x][idx].x,rbox8[y][x][idx].y,rbox8[y][x][idx].w,rbox8[y][x][idx].h);
 
                     for (i=0;i<5;i++)
                     {
                         rland8[y][x][idx][i].x=(cx + rland_8[y][x][10*idx+2*i]* 0.1 * s_kx);
                         rland8[y][x][idx][i].y=(cy + rland_8[y][x][10*idx+2*i+1]* 0.1 * s_ky);
-                        LOGD("rland8[%d][%d][%d][%d].x = %f,  rland8[%d][%d][%d][%d].y = %f\n",y,x,idx,i,rland8[y][x][idx][i].x ,y,x,idx,i,rland8[y][x][idx][i].y );
+                        ALOGD("[%s: %d ] rland8[%d][%d][%d][%d].x = %f,  rland8[%d][%d][%d][%d].y = %f\n",__func__, __LINE__, y,x,idx,i,rland8[y][x][idx][i].x ,y,x,idx,i,rland8[y][x][idx][i].y );
                     }
                 }
             }
@@ -487,7 +489,7 @@ int face_rfb_detect_postprocess(face_rfb_detect_out_t* pface_rfb_det_result )
                     rbox16[y][x][idx].y = (pred_ctry-0.5*(predh));
                     rbox16[y][x][idx].w = predw;
                     rbox16[y][x][idx].h = predh;
-                    LOGD("16 x=%f,y=%f,w=%f,h=%f\n",rbox16[y][x][idx].x,rbox16[y][x][idx].y,rbox16[y][x][idx].w,rbox16[y][x][idx].h);
+                    ALOGD("[%s: %d ] 16 x=%f,y=%f,w=%f,h=%f\n",__func__, __LINE__, rbox16[y][x][idx].x,rbox16[y][x][idx].y,rbox16[y][x][idx].w,rbox16[y][x][idx].h);
 
                     for (i=0;i<5;i++)
                     {
@@ -526,7 +528,7 @@ int face_rfb_detect_postprocess(face_rfb_detect_out_t* pface_rfb_det_result )
                     rbox32[y][x][idx].y = (pred_ctry-0.5*(predh));
                     rbox32[y][x][idx].w = predw;
                     rbox32[y][x][idx].h = predh;
-                    LOGD("32 x=%f,y=%f,w=%f,h=%f\n",rbox32[y][x][idx].x,rbox32[y][x][idx].y,rbox32[y][x][idx].w,rbox32[y][x][idx].h);
+                    ALOGD("[%s: %d ] 32 x=%f,y=%f,w=%f,h=%f\n",__func__, __LINE__, rbox32[y][x][idx].x,rbox32[y][x][idx].y,rbox32[y][x][idx].w,rbox32[y][x][idx].h);
 
                     for (i=0;i<5;i++)
                     {
@@ -568,7 +570,7 @@ int face_rfb_detect_postprocess(face_rfb_detect_out_t* pface_rfb_det_result )
                     rbox64[y][x][idx].y = (pred_ctry-0.5*(predh));
                     rbox64[y][x][idx].w = predw;
                     rbox64[y][x][idx].h = predh;
-                    LOGD("64 x=%f,y=%f,w=%f,h=%f\n",rbox64[y][x][idx].x,rbox64[y][x][idx].y,rbox64[y][x][idx].w,rbox64[y][x][idx].h);
+                    ALOGD("[%s: %d ] 64 x=%f,y=%f,w=%f,h=%f\n",__func__, __LINE__, rbox64[y][x][idx].x,rbox64[y][x][idx].y,rbox64[y][x][idx].w,rbox64[y][x][idx].h);
 
                     for (i=0;i<5;i++)
                     {

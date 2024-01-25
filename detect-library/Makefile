@@ -7,7 +7,7 @@ all: $(TARGET)
 
 CXXFLAGS+=-std=c++14 -Wall -Wextra -fPIC -Os
 CFLAGS = -Wall -Wextra -fPIC -Os
-LDFLAGS +=  -L$(STAGING_DIR)/usr/lib/ -Wall -Wextra -fPIC -Os -lstdc++ -lm -lpthread -lnnsdk -lnndemo -laml-log
+LDFLAGS +=  -L$(STAGING_DIR)/usr/lib/ -Wall -Wextra -fPIC -Os -lstdc++ -lm -lpthread -lnnsdk -lnndemo -llog
 
 CFLAGS += \
 	-I inc/ \

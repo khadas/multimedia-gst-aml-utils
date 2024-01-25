@@ -10,6 +10,8 @@
 /*-------------------------------------------
                 Includes
 -------------------------------------------*/
+#define LOG_TAG "model_aml_person_detect"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -63,7 +65,7 @@ void person_do_nms_sort(box *boxes, float probs[][1], int total, int classes, fl
     sortable_bbox_person *s = (sortable_bbox_person *)calloc(total, sizeof(sortable_bbox_person));
 	if (s == NULL)
 	{
-		LOGE("terrible calloc fail\n");
+		ALOGE("[%s: %d ] terrible calloc fail", __func__, __LINE__);
 		return;
 	}
     for (i = 0; i < total; ++i)

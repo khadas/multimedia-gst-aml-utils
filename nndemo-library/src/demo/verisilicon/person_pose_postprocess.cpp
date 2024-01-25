@@ -10,6 +10,8 @@
 /*-------------------------------------------
                 Includes
 -------------------------------------------*/
+#define LOG_TAG "person_pose_postprocess"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -156,7 +158,7 @@ static int zip(std::vector<double> &src1, std::vector<double> &src2,
                std::vector<std::array<double, 2>> &result)
 {
     if (src1.size() != src2.size()) {
-        LOGE("src1.size() != src2.size()");
+        ALOGE("[%s: %d ] src1.size() != src2.size()", __func__, __LINE__);
         return 0;
     }
     for (unsigned int i = 0; i < src1.size(); ++i) {
@@ -181,7 +183,7 @@ static std::vector<float> operator+(std::vector<float> vec1, std::vector<float> 
 {
     std::vector<float> result;
     if (vec1.size() != vec2.size()) {
-        LOGE("vec1.size() != vec2.size()");
+        ALOGE("[%s: %d ] vec1.size() != vec2.size()", __func__, __LINE__);
         return vec1;
     }
     for (unsigned int i = 0; i < vec1.size(); ++i) {

@@ -1,3 +1,5 @@
+#define LOG_TAG "detect"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,16 +17,13 @@ using namespace std;
 #include "nn_demo.h"
 #include "nn_detect.h"
 #include "nn_detect_utils.h"
-#include "aml_log.h"
 
 // for test performance time
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/time.h>
+#include <cutils/log.h>
 
-
-
-#define AML_LOG_MODULE_NAME "DETECT"
 
 static struct timeval g_start;
 
@@ -125,25 +124,26 @@ static det_status_t check_input_param(input_image_t imageData, det_model_type mo
     int size=0,imagesize=0;
 
     if (NULL == imageData.data) {
-        LOGE("Data buffer is NULL");
+        ALOGE("[%s: %d ] Data buffer is NULL!", __func__, __LINE__);
         _SET_STATUS_(ret, DET_STATUS_PARAM_ERROR, exit);
     }
 
     if (imageData.pixel_format != PIX_FMT_NV21 && imageData.pixel_format != PIX_FMT_RGB888) {
-        LOGE("Current only support RGB888 and NV21");
+        ALOGE("[%s: %d ] Current only support RGB888 and NV21!", __func__, __LINE__);
         _SET_STATUS_(ret, DET_STATUS_PARAM_ERROR, exit);
     }
 
     size = get_input_size(modelType);
     if (size == 0) {
-        LOGE("Get_model_size fail!");
+        ALOGE("[%s: %d ] Get_model_size fail!", __func__, __LINE__);
         _SET_STATUS_(ret, DET_STATUS_PARAM_ERROR, exit);
     }
 
     if (imageData.pixel_format == PIX_FMT_RGB888) {
         imagesize = imageData.width*imageData.height*imageData.channel;
         if (size != imagesize) {
-            LOGE("Inputsize not match! model size:%d vs input size:%d\n", size, imagesize);
+            ALOGE("[%s: %d ] Inputsize not match! model size:%d vs input size:%d\n", __func__, __LINE__, size, imagesize);
+
             _SET_STATUS_(ret, DET_STATUS_PARAM_ERROR, exit);
         }
     }
@@ -174,57 +174,58 @@ static void check_and_set_dev_type(det_model_type modelType)
         switch (customID)
         {
             case 125:
-                LOGI("set_dev_type DEV_REVA and setenv 0");
+                ALOGI("[%s: %d ] set_dev_type DEV_REVA and setenv 0", __func__, __LINE__);
                 g_dev_type = DEV_REVA;
                 setenv("DEV_TYPE", "0", 0);
                 break;
             case 136:
-                LOGI("set_dev_type DEV_REVB and setenv 1");
+                ALOGI("[%s: %d ] set_dev_type DEV_REVB and setenv 1", __func__, __LINE__);
                 g_dev_type = DEV_REVB;
                 setenv("DEV_TYPE", "1", 0);
                 break;
             case 153:
-                LOGI("set_dev_type DEV_SM1 and setenv 2");
+                ALOGI("[%s: %d ] set_dev_type DEV_SM1 and setenv 2", __func__, __LINE__);
                 g_dev_type = DEV_SM1;
                 setenv("DEV_TYPE", "2", 0);
                 break;
             default:
-                LOGE("set_dev_type fail, please check the type ");
+                ALOGE("[%s: %d ] set_dev_type fail, please check the type", __func__, __LINE__);
                 break;
         }
-        LOGD("customID:%d\n", customID);
+        ALOGD("[%s: %d ] customID:%d\n",__func__, __LINE__, customID);
     }
     else if (hw_type == AML_HARDWARE_ADLA)
     {
         switch (plat_type)
         {
             case 0:
-                LOGI("set_dev_type DEV_C308 and setenv 0");
+                ALOGI("[%s: %d ] set_dev_type DEV_C308 and setenv 0", __func__, __LINE__);
                 g_dev_type = DEV_C308;
                 setenv("DEV_TYPE", "0", 0);
                 break;
             case 1:
-                LOGI("set_dev_type DEV_AX201 and setenv 1");
+                ALOGI("[%s: %d ] set_dev_type DEV_AX201 and setenv 1", __func__, __LINE__);
                 g_dev_type = DEV_AX201;
                 setenv("DEV_TYPE", "1", 0);
                 break;
             case 2:
-                LOGI("set_dev_type DEV_A311D2 and setenv 2");
+                ALOGI("[%s: %d ] set_dev_type DEV_A311D2 and setenv 2", __func__, __LINE__);
                 g_dev_type = DEV_A311D2;
                 setenv("DEV_TYPE", "2", 0);
                 break;
             default:
-                LOGE("set_dev_type fail, please check the type:%d\n", plat_type);
+                ALOGE("[%s: %d ] set_dev_type fail, please check the type:%d\n", __func__, __LINE__, plat_type);
                 break;
         }
-        LOGD("Platform_type:%d\n", plat_type);
+        ALOGD("[%s:%d] Platform_type:%d\n", __func__, __LINE__, plat_type);
     }
     else
     {
-        LOGE("check_and_set_dev_type fail, please check the hw_type:%d\n", hw_type);
+        ALOGE("[%s: %d ] check_and_set_dev_type fail, please check the hw_type:%d\n", __func__, __LINE__, hw_type);
+
     }
 
-    LOGD("hw_type:%d\n", hw_type);
+    ALOGD("[%s:%d] hw_type:%d\n", __func__, __LINE__, hw_type);
 }
 
 
@@ -234,14 +235,14 @@ void *post_process_all_module(aml_module_t type,nn_output *pOut);
 
 det_status_t check_and_set_function(det_model_type modelType)
 {
-    LOGP("Enter, dlopen so: libnnsdk.so");
+    ALOGI("[%s: %d ] Enter, dlopen so: libnnsdk.so", __func__, __LINE__);
 
     int ret = DET_STATUS_ERROR;
     p_det_network_t net = &network[modelType];
 
     net->handle_id_user =  dlopen("libnnsdk.so", RTLD_NOW);
     if (NULL == net->handle_id_user) {
-        LOGE("dlopen libnnsdk.so failed!,%s",dlerror());
+        ALOGE("[%s: %d ] dlopen libnnsdk.so failed!,%s", __func__, __LINE__, dlerror());
         _SET_STATUS_(ret, DET_STATUS_ERROR, exit);
     }
 
@@ -273,7 +274,7 @@ det_status_t check_and_set_function(det_model_type modelType)
 
     ret = DET_STATUS_OK;
 exit:
-    LOGP("Leave, dlopen so: libnnsdk.so, ret=%d", ret);
+    ALOGI("[%s: %d ] Leave, dlopen so: libnnsdk.so, ret=%d", __func__, __LINE__, ret);
      return ret;
 }
 
@@ -356,20 +357,20 @@ det_status_t det_set_model(det_model_type modelType)
     int output_size[ADDRESS_MAX_NUM] = {0};
     p_det_network_t net = &network[modelType];
 
-    LOGP("Enter, modeltype:%d", modelType);
+    ALOGI("[%s: %d ] Enter, modeltype:%d", __func__, __LINE__, modelType);
     if (modelType >= DET_BUTT) {
-        LOGE("Det_set_model fail, modelType >= BUTT");
+        ALOGE("[%s: %d ] Det_set_model fail, modelType >= BUTT", __func__, __LINE__);
         _SET_STATUS_(ret, DET_STATUS_PARAM_ERROR, exit);
     }
 
     ret = check_and_set_function(modelType);
     check_and_set_dev_type(modelType);
     if (ret) {
-        LOGE("ModelType so open failed or Not support now!!");
+        ALOGE("[%s: %d ] ModelType so open failed or Not support now!!", __func__, __LINE__);
         _SET_STATUS_(ret, DET_STATUS_ERROR, exit);
     }
     memset(&config,0,sizeof(aml_config));
-    LOGI("Start create Model, data_file_path=%s",data_file_path);
+    ALOGI("[%s: %d ] Start create Model, data_file_path=%s", __func__, __LINE__, data_file_path);
     det_get_model_name(data_file_path,g_dev_type,modelType);
 
     if (hw_type == AML_HARDWARE_VSI_UNIFY)
@@ -417,13 +418,13 @@ det_status_t det_set_model(det_model_type modelType)
         config.modelType = ADLA_LOADABLE;
     }
 
-    LOGI("module_create, model_path=%s",model_path);
+    ALOGI("[%s: %d ] module_create, model_path=%s", __func__, __LINE__, model_path);
     config.path = (const char *)model_path;
     config.typeSize = sizeof(aml_config);
 
     net->context = net->process.module_create(&config);
     if (net->context == NULL) {
-    LOGE("Model_create fail, file_path=%s, dev_type=%d", data_file_path, g_dev_type);
+    ALOGE("[%s: %d ] Model_create fail, file_path=%s, dev_type=%d", __func__, __LINE__, data_file_path, g_dev_type);
     _SET_STATUS_(ret, DET_STATUS_CREATE_NETWORK_FAIL, exit);
     }
 
@@ -461,18 +462,18 @@ det_status_t det_set_model(det_model_type modelType)
     net->status = NETWORK_INIT;
 
 exit:
-    LOGP("Leave, modeltype:%d", modelType);
+    ALOGI("[%s: %d ] Leave, modeltype:%d", __func__, __LINE__, modelType);
     return ret;
 }
 
 det_status_t det_get_model_size(det_model_type modelType, int *width, int *height, int *channel)
 {
-    LOGP("Enter, modeltype:%d", modelType);
+    ALOGI("[%s: %d ] Enter, modeltype:%d", __func__, __LINE__, modelType);
 
     int ret = DET_STATUS_OK;
     p_det_network_t net = &network[modelType];
     if (!net->status) {
-        LOGE("Model has not created! modeltype:%d", modelType);
+        ALOGE("[%s: %d ] Model has not created! modeltype:%d", __func__, __LINE__, modelType);
         _SET_STATUS_(ret, DET_STATUS_ERROR, exit);
     }
     switch (modelType)
@@ -491,7 +492,7 @@ det_status_t det_get_model_size(det_model_type modelType, int *width, int *heigh
         break;
     }
 exit:
-    LOGP("Leave, modeltype:%d", modelType);
+    ALOGI("[%s: %d ] Leave, modeltype:%d", __func__, __LINE__, modelType);
     return ret;
 }
 
@@ -502,9 +503,10 @@ det_status_t det_set_input(input_image_t imageData, det_model_type modelType)
     p_det_network_t net = &network[modelType];
     int i,j,tmpdata,nn_width, nn_height, channels,offset;
 
-    LOGP("Enter, modeltype:%d", modelType);
+    ALOGI("[%s: %d ] Enter, modeltype:%d", __func__, __LINE__, modelType);
+
     if (!net->status) {
-        LOGE("Model has not created! modeltype:%d", modelType);
+        ALOGE("[%s: %d ] Model has not created! modeltype:%d", __func__, __LINE__, modelType);
         _SET_STATUS_(ret, DET_STATUS_ERROR, exit);
     }
 
@@ -512,7 +514,8 @@ det_status_t det_set_input(input_image_t imageData, det_model_type modelType)
 
     ret = check_input_param(imageData, modelType);
     if (ret) {
-        LOGE("Check_input_param fail.");
+        ALOGE("[%s: %d ] Check_input_param fail.", __func__, __LINE__);
+
         _SET_STATUS_(ret, DET_STATUS_PARAM_ERROR, exit);
     }
 
@@ -560,34 +563,35 @@ det_status_t det_set_input(input_image_t imageData, det_model_type modelType)
 
     if (ret)
     {
-        LOGE("Set input fail.");
+        ALOGE("[%s: %d ] Set input fail.", __func__, __LINE__);
         _SET_STATUS_(ret, DET_STATUS_SET_INPUT_ERROR, exit);
     }
     net->status = NETWORK_PREPARING;
 
 exit:
-    LOGP("Leave, modeltype:%d", modelType);
+    ALOGI("[%s: %d ] Leave, modeltype:%d", __func__, __LINE__, modelType);
 
     struct timeval end;
     double time_total;
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
     g_start = end;
-    LOGI("det_set_input, time=%lf uS \n", time_total);
+    ALOGI("[%s: %d ] det_set_input, time=%lf uS \n", __func__, __LINE__, time_total);
 
     return ret;
 }
 
 det_status_t det_set_param(det_model_type modelType, det_param_t param)
 {
-    LOGP("Enter, modeltype:%d", modelType);
+    ALOGI("[%s: %d ] Enter, modeltype:%d", __func__, __LINE__, modelType);
+
     int ret = DET_STATUS_OK;
     int number = param.param.det_param.detect_num;
-    LOGI("detect num is %d\n",number);
+    ALOGI("[%s: %d ] detect num is %d\n", __func__, __LINE__, number);
 
     p_det_network_t net = &network[modelType];
     if (!net->status) {
-        LOGE("Model has not created! modeltype:%d", modelType);
+        ALOGE("[%s: %d ] Model has not created! modeltype:%d", __func__, __LINE__, modelType);
         _SET_STATUS_(ret, DET_STATUS_ERROR, exit);
     }
     switch (modelType)
@@ -602,25 +606,26 @@ det_status_t det_set_param(det_model_type modelType, det_param_t param)
         {
             g_detect_number = number;
         }
-        LOGI("g_detect_number is %d\n",g_detect_number);
+        ALOGI("[%s: %d ] g_detect_number is %d\n", __func__, __LINE__, g_detect_number);
         break;
     default:
         break;
     }
 
 exit:
-    LOGP("Leave, modeltype:%d", modelType);
+    ALOGI("[%s: %d ] Leave, modeltype:%d", __func__, __LINE__, modelType);
     return ret;
 }
 
 det_status_t det_get_param(det_model_type modelType,det_param_t *param)
 {
-    LOGP("Enter, modeltype:%d", modelType);
+    ALOGI("[%s: %d ] Enter, modeltype:%d", __func__, __LINE__, modelType);
+
     int ret = DET_STATUS_OK;
 
     p_det_network_t net = &network[modelType];
     if (!net->status) {
-        LOGE("Model has not created! modeltype:%d", modelType);
+        ALOGE("[%s: %d ] Model has not created! modeltype:%d", __func__, __LINE__, modelType);
         _SET_STATUS_(ret, DET_STATUS_ERROR, exit);
     }
 
@@ -629,14 +634,14 @@ det_status_t det_get_param(det_model_type modelType,det_param_t *param)
     case DET_YOLO_V3:
     case DET_AML_FACE_DETECTION:
         param->param.det_param.detect_num = g_detect_number;
-        LOGI("g_detect_number is %d\n",g_detect_number);
+        ALOGI("[%s: %d ] g_detect_number is %d\n", __func__, __LINE__, g_detect_number);
         break;
     default:
         break;
     }
 
 exit:
-    LOGP("Leave, modeltype:%d", modelType);
+    ALOGI("[%s: %d ] Leave, modeltype:%d", __func__, __LINE__, modelType);
     return ret;
 }
 
@@ -659,7 +664,8 @@ aml_module_t get_sdk_modeltype(det_model_type modelType)
 
 void post_process(det_model_type modelType,void* out,pDetResult resultData)
 {
-    LOGP("Enter, post_process modelType:%d", modelType);
+    ALOGI("[%s: %d ] Enter, post_process modelType:%d", __func__, __LINE__, modelType);
+
 
     face_landmark5_out_t           *face_detect_out            = NULL;
     yolov3_out_t                   *yolov3_out                 = NULL;
@@ -701,7 +707,7 @@ void post_process(det_model_type modelType,void* out,pDetResult resultData)
                 resultData->result.det_result.point[i].point.rectPoint.score = prob;
                 resultData->result.det_result.result_name[i].label_id = label_num;
                 memcpy(resultData->result.det_result.result_name[i].label_name, coco_names[label_num], sizeof(coco_names[label_num]));
-                LOGI("num:%d, class:%s, label_num:%d, left:%f, right:%f, top:%f, bot:%f, score:%f\n", i+1,
+                ALOGI("[%s: %d ] num:%d, class:%s, label_num:%d, left:%f, right:%f, top:%f, bot:%f, score:%f\n", __func__, __LINE__ ,i+1,
                                                                                 resultData->result.det_result.result_name[i].label_name,
                                                                                 resultData->result.det_result.result_name[i].label_id,
                                                                                 resultData->result.det_result.point[i].point.rectPoint.left,
@@ -784,14 +790,16 @@ det_status_t det_get_result(pDetResult resultData, det_model_type modelType)
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
     g_start = end;
-    LOGI("det_set_input-det_get_result, time=%lf uS \n", time_total);
+    ALOGI("[%s: %d ] det_set_input-det_get_result, time=%lf uS \n", __func__, __LINE__, time_total);
 
     p_det_network_t net = &network[modelType];
     void *out;
     nn_output *nn_out;
-    LOGP("Enter, modeltype:%d", modelType);
+    ALOGI("[%s: %d ] Enter, modeltype:%d", __func__, __LINE__, modelType);
+
     if (NETWORK_PREPARING != net->status) {
-        LOGE("Model not create or not prepared! status=%d", net->status);
+        ALOGE("[%s: %d ] Model not create or not prepared! status=%d", __func__, __LINE__, net->status);
+
         _SET_STATUS_(ret, DET_STATUS_ERROR, exit);
     }
     outconfig.typeSize = sizeof(aml_output_config_t);
@@ -802,7 +810,7 @@ det_status_t det_get_result(pDetResult resultData, det_model_type modelType)
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
     g_start = end;
-    LOGI("before AML_PERF_OUTPUT_SET, time=%lf uS \n", time_total);
+    ALOGI("[%s: %d ] before AML_PERF_OUTPUT_SET, time=%lf uS \n", __func__, __LINE__, time_total);
 
     outconfig.perfMode = AML_PERF_OUTPUT_SET;
     nn_out = (nn_output*)net->process.module_output_get(net->context,outconfig);
@@ -810,7 +818,7 @@ det_status_t det_get_result(pDetResult resultData, det_model_type modelType)
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
     g_start = end;
-    LOGI("AML_PERF_OUTPUT_SET, time=%lf uS \n", time_total);
+    ALOGI("[%s: %d ] AML_PERF_OUTPUT_SET, time=%lf uS \n", __func__, __LINE__, time_total);
 
     outconfig.perfMode = AML_PERF_INFERENCE;
     nn_out = (nn_output*)net->process.module_output_get(net->context,outconfig);
@@ -818,7 +826,7 @@ det_status_t det_get_result(pDetResult resultData, det_model_type modelType)
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
     g_start = end;
-    LOGI("AML_PERF_INFERENCE, time=%lf uS \n", time_total);
+    ALOGI("[%s: %d ] AML_PERF_INFERENCE, time=%lf uS \n", __func__, __LINE__, time_total);
 
     outconfig.perfMode = AML_PERF_OUTPUT_GET;
     nn_out = (nn_output*)net->process.module_output_get(net->context,outconfig);
@@ -826,19 +834,20 @@ det_status_t det_get_result(pDetResult resultData, det_model_type modelType)
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
     g_start = end;
-    LOGI("AML_PERF_OUTPUT_GET, time=%lf uS \n", time_total);
+    ALOGI("[%s: %d ] AML_PERF_OUTPUT_GET, time=%lf uS \n", __func__, __LINE__, time_total);
 
     out = (void*)net->process.post_process(modelType_sdk, nn_out);
 
     if (out == NULL) {
-        LOGE("Process Net work fail");
+        ALOGE("[%s: %d ] Process Net work fail", __func__, __LINE__);
+
         _SET_STATUS_(ret, DET_STATUS_PROCESS_NETWORK_FAIL, exit);
     }
 
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
     g_start = end;
-    LOGI("net->process.post_process, time=%lf uS \n", time_total);
+    ALOGI("[%s: %d ] net->process.post_process, time=%lf uS \n", __func__, __LINE__, time_total);
 
     post_process(modelType,out,resultData);
     net->status = NETWORK_PROCESSING;
@@ -846,9 +855,10 @@ det_status_t det_get_result(pDetResult resultData, det_model_type modelType)
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - g_start.tv_sec)*1000000.0 + (end.tv_usec - g_start.tv_usec);
     g_start = end;
-    LOGI("post_process, time=%lf uS \n", time_total);
+    ALOGI("[%s: %d ] post_process, time=%lf uS \n", __func__, __LINE__, time_total);
+
 exit:
-    LOGP("Leave, modeltype:%d", modelType);
+    ALOGI("[%s: %d ] Leave, modeltype:%d", __func__, __LINE__, modelType);
 
     return ret;
 }
@@ -859,9 +869,11 @@ det_status_t det_release_model(det_model_type modelType)
     int ret = DET_STATUS_OK;
     p_det_network_t net = &network[modelType];
 
-    LOGP("Enter, modeltype:%d", modelType);
+    ALOGI("[%s: %d ] Enter, modeltype:%d", __func__, __LINE__, modelType);
+
     if (!net->status) {
-        LOGW("Model has benn released!");
+        ALOGW("[%s: %d ] Model has benn released!", __func__, __LINE__);
+
         _SET_STATUS_(ret, DET_STATUS_OK, exit);
     }
 
@@ -911,7 +923,7 @@ det_status_t det_release_model(det_model_type modelType)
     net->status = NETWORK_UNINIT;
 
 exit:
-    LOGP("Leave, modeltype:%d", modelType);
+    ALOGI("[%s: %d ] Leave, modeltype:%d", __func__, __LINE__, modelType);
     return ret;
 }
 
@@ -990,7 +1002,6 @@ static det_status_t det_set_input_to_NPU(input_image_t imageData, det_model_type
     nn_input inData;
     int ret = DET_STATUS_OK;
     p_det_network_t net = &network[modelType];
-    static int currentIndex = 0;
 
 
 
@@ -999,14 +1010,15 @@ static det_status_t det_set_input_to_NPU(input_image_t imageData, det_model_type
     double time_total;
     gettimeofday(&start, NULL);
 
-    LOGI("Enter, modeltype:%d", modelType);
+    ALOGI("[%s: %d ] Enter, modeltype:%d", __func__, __LINE__, modelType);
 
     // need check u8 or i8, prepare diff preprocess
     //zyadd
     int i,j,tmpdata,nn_width, nn_height, channels,offset;
     ret = check_input_param(imageData, modelType);
     if (ret) {
-        LOGE("Check_input_param fail.");
+        ALOGE("[%s: %d ] Check_input_param fail.", __func__, __LINE__);
+
         _SET_STATUS_(ret, DET_STATUS_PARAM_ERROR, exit);
     }
 
@@ -1030,7 +1042,8 @@ static det_status_t det_set_input_to_NPU(input_image_t imageData, det_model_type
                     gettimeofday(&end, NULL);
                     time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
                     start = end;
-                    LOGI("det_set_input_to_NPU_u8_change, time=%lf uS \n", time_total);
+                    ALOGI("[%s: %d ] det_set_input_to_NPU_u8_change, time=%lf uS \n", __func__, __LINE__, time_total);
+
                     break;
                 case DET_AML_FACE_DETECTION:
                     break;
@@ -1051,8 +1064,9 @@ static det_status_t det_set_input_to_NPU(input_image_t imageData, det_model_type
             }
             //yi.zhang1 add ,for debug dump frame
             #if 0
+                static int currentIndex = 0;
                 string filename = "output_image_" + std::to_string(currentIndex) + ".raw";
-                LOGI("we now get the %d frame\n",currentIndex);
+                ALOGI("[%s: %d ] we now get the %d frame\n", __func__, __LINE__, currentIndex);
                 ofstream imageFile(filename, std::ios::binary);
                 imageFile.write(reinterpret_cast<const char*>(imageData.data), imageData.width * imageData.height * imageData.channel);
                 imageFile.close();
@@ -1069,17 +1083,19 @@ static det_status_t det_set_input_to_NPU(input_image_t imageData, det_model_type
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
     start = end;
-    LOGI("net->process.module_input_set, time=%lf uS \n", time_total);
+    ALOGI("[%s: %d ] net->process.module_input_set, time=%lf uS \n", __func__, __LINE__, time_total);
 
     if (ret)
     {
-        LOGE("Set input fail.");
+        ALOGE("[%s: %d ] Set input fail.", __func__, __LINE__);
+
         _SET_STATUS_(ret, DET_STATUS_SET_INPUT_ERROR, exit);
     }
     net->status = NETWORK_PREPARING;
 
 exit:
-    LOGI("Leave, modeltype:%d", modelType);
+    ALOGI("[%s: %d ] Leave, modeltype:%d", __func__, __LINE__, modelType);
+
 
     return ret;
 }
@@ -1102,9 +1118,11 @@ static det_status_t det_set_output_to_NPU(det_model_type modelType, aml_output_c
     int ret = DET_STATUS_OK;
     p_det_network_t net = &network[modelType];
 
-    LOGI("Enter, modeltype:%d", modelType);
+    ALOGI("[%s: %d ] Enter, modeltype:%d", __func__, __LINE__, modelType);
+
     if (NETWORK_PREPARING != net->status) {
-        LOGE("Model not create or not prepared! status=%d", net->status);
+        ALOGE("[%s: %d ] Model not create or not prepared! status=%d", __func__, __LINE__, net->status);
+
         _SET_STATUS_(ret, DET_STATUS_ERROR, exit);
     }
 
@@ -1112,7 +1130,8 @@ static det_status_t det_set_output_to_NPU(det_model_type modelType, aml_output_c
     net->process.module_output_get(net->context, *pOutconfig);
 
 exit:
-    LOGI("Leave, modeltype:%d", modelType);
+    ALOGI("[%s: %d ] Leave, modeltype:%d", __func__, __LINE__, modelType);
+
     return ret;
 }
 
@@ -1124,7 +1143,7 @@ det_status_t det_trigger_inference(input_image_t imageData, det_model_type model
     p_det_network_t net = &network[modelType];
     int ret = DET_STATUS_OK;
 
-    LOGI("Enter, modeltype:%d", modelType);
+    ALOGI("[%s: %d ] Enter, modeltype:%d", __func__, __LINE__, modelType);
 
     struct timeval start;
     struct timeval end;
@@ -1138,7 +1157,7 @@ det_status_t det_trigger_inference(input_image_t imageData, det_model_type model
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
     start = end;
-    LOGI("det_set_input_to_NPU, time=%lf uS \n", time_total);
+    ALOGI("[%s: %d ] det_set_input_to_NPU, time=%lf uS \n", __func__, __LINE__, time_total);
 
     /////////////////////////////////////////////////////////////////////////////////
     // get outconfig
@@ -1150,7 +1169,7 @@ det_status_t det_trigger_inference(input_image_t imageData, det_model_type model
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
     start = end;
-    LOGI("det_set_output_to_NPU, time=%lf uS \n", time_total);
+    ALOGI("[%s: %d ] det_set_output_to_NPU, time=%lf uS \n", __func__, __LINE__, time_total);
 
     /////////////////////////////////////////////////////////////////////////////////
     // set triggler inference
@@ -1160,9 +1179,11 @@ det_status_t det_trigger_inference(input_image_t imageData, det_model_type model
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
     start = end;
-    LOGI("AML_PERF_INFERENCE, time=%lf uS \n", time_total);
+    ALOGI("[%s: %d ] AML_PERF_INFERENCE, time=%lf uS \n", __func__, __LINE__, time_total);
 
-    LOGI("Leave, modeltype:%d", modelType);
+
+    ALOGI("[%s: %d ] Leave, modeltype:%d", __func__, __LINE__, modelType);
+
     return ret;
 }
 
@@ -1177,7 +1198,8 @@ det_status_t det_get_inference_result(pDetResult resultData, det_model_type mode
     nn_output *nn_out;
 
     void *out;
-    LOGI("Enter, modeltype:%d", modelType);
+    ALOGI("[%s: %d ] Enter, modeltype:%d", __func__, __LINE__, modelType);
+
 
     struct timeval start;
     struct timeval end;
@@ -1194,21 +1216,22 @@ det_status_t det_get_inference_result(pDetResult resultData, det_model_type mode
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
     start = end;
-    LOGI("AML_PERF_OUTPUT_GET, num=%d, out[0]=%d, out[1]=%d, out[2]=%d, time=%lf uS\n", nn_out->num, nn_out->out[0].size, nn_out->out[1].size, nn_out->out[2].size, time_total);
+    ALOGI("[%s: %d ] AML_PERF_OUTPUT_GET, num=%d, out[0]=%d, out[1]=%d, out[2]=%d, time=%lf uS\n",  __func__, __LINE__, nn_out->num, nn_out->out[0].size, nn_out->out[1].size, nn_out->out[2].size, time_total);
 
     aml_module_t modelType_sdk;
     modelType_sdk = get_sdk_modeltype(modelType);
     out = (void*)net->process.post_process(modelType_sdk, nn_out);
 
     if (out == NULL) {
-        LOGE("Process Net work fail");
+        ALOGE("[%s: %d ] Process Net work fail", __func__, __LINE__);
+
         _SET_STATUS_(ret, DET_STATUS_PROCESS_NETWORK_FAIL, exit);
     }
 
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
     start = end;
-    LOGI("nnsdk, time=%lf uS \n", time_total);
+    ALOGI("[%s: %d ] nnsdk, time=%lf uS \n", __func__, __LINE__, time_total);
 
     post_process(modelType, out, resultData);
     net->status = NETWORK_PROCESSING;
@@ -1216,9 +1239,11 @@ det_status_t det_get_inference_result(pDetResult resultData, det_model_type mode
     gettimeofday(&end, NULL);
     time_total = (end.tv_sec - start.tv_sec)*1000000.0 + (end.tv_usec - start.tv_usec);
     start = end;
-    LOGI("post_process, time=%lf uS \n", time_total);
+    ALOGI("[%s: %d ] post_process, time=%lf uS \n", __func__, __LINE__, time_total);
+
 exit:
-    LOGI("Leave, modeltype:%d", modelType);
+    ALOGI("[%s: %d ] Leave, modeltype:%d", __func__, __LINE__, modelType);
+
     return ret;
 }
 

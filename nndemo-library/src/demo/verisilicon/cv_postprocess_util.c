@@ -10,6 +10,8 @@
 /*-------------------------------------------
                 Includes
 -------------------------------------------*/
+#define LOG_TAG "cv_postprocess_util"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -67,9 +69,9 @@ int nms_comparator(const void *pa, const void *pb)
     sortable_bbox a = *(sortable_bbox *)pa;
     sortable_bbox b = *(sortable_bbox *)pb;
 
-    LOGD("a.index=%d, a.classId=%d, b.index=%d, b.classId=%d, a.probs=%p, b.probs=%p\n", a.index, a.classId, b.index,b.classId, a.probs,b.probs);
-    LOGD("a.probs = %f\n", a.probs[a.index][b.classId]);
-    LOGD("b.probs = %f\n", b.probs[b.index][b.classId]);
+    ALOGD("[%s: %d ] a.index=%d, a.classId=%d, b.index=%d, b.classId=%d, a.probs=%p, b.probs=%p\n", __func__, __LINE__, a.index, a.classId, b.index,b.classId, a.probs,b.probs);
+    ALOGD("[%s: %d ] a.probs = %f\n", __func__, __LINE__, a.probs[a.index][b.classId]);
+    ALOGD("[%s: %d ] b.probs = %f\n", __func__, __LINE__, b.probs[b.index][b.classId]);
 
     float diff = a.probs[a.index][b.classId] - b.probs[b.index][b.classId];
     if (diff < 0) return 1;

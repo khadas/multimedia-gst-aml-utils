@@ -15,7 +15,7 @@ CFLAGS += \
 
 LDFLAGS += -L$(STAGING_DIR)/usr/lib/ \
 			-L$(OUT_DIR)/$(OBJDIR) \
-			-laml-log
+			-llog
 
 $(info "TARGET_CFLAGS : $(TARGET_CFLAGS)")
 $(info "CXXFLAGS : $(CXXFLAGS)")

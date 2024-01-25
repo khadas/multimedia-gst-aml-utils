@@ -23,6 +23,8 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+#define LOG_TAG "dma_allocator"
+
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -40,9 +42,8 @@
 
 #include "dma_allocator.h"
 
+#include <cutils/log.h>
 
-#include "aml_log.h"
-#define AML_LOG_MODULE_NAME "DMA"
 #define DEVPATH "/dev/dma_heap"
 
 
@@ -50,20 +51,20 @@ int aml_dmabuf_heap_open(char *name)
 {
 	int ret, fd;
 	char buf[256];
-	LOGI("%s : %s", __FUNCTION__, name);
+	ALOGI("[%s: %d ] %s", __func__, __LINE__, name);
 
 	ret = snprintf(buf, 256, "%s/%s", DEVPATH, name);
 	if (ret < 0) {
-		LOGE("snprintf failed!");
+		ALOGE("[%s: %d ] snprintf failed!", __func__, __LINE__);
 		return ret;
 	}
 
-	LOG_Default("%s : %s", __FUNCTION__, buf);
+	ALOGI("[%s: %d ] %s", __func__, __LINE__, buf);
 	fprintf(stderr, "%s : %s", __FUNCTION__, buf);
 
 	fd = open(buf, O_RDWR);
 	if (fd < 0)
-		LOGE("open %s failed!", buf);
+	ALOGE("[%s: %d ] open %s failed!", __func__, __LINE__, buf);
 	return fd;
 }
 
@@ -80,17 +81,17 @@ static int dmabuf_heap_alloc_fdflags(int heap_fd, size_t len, unsigned int fd_fl
 	int ret;
 
 	if (!dmabuf_fd) {
-		LOGE("dmabuf_fd:%p invalid!", dmabuf_fd);
+	ALOGE("[%s: %d ] dmabuf_fd:%p invalid!", __func__, __LINE__, dmabuf_fd);
 		return -EINVAL;
 	}
 
 	ret = ioctl(heap_fd, DMA_HEAP_IOCTL_ALLOC, &data);
 	if (ret < 0) {
-		LOGE("ioctl failed, ret=%d!", ret);
+		ALOGE("[%s: %d ] ioctl failed, ret=%d!", __func__, __LINE__, ret);
 		return ret;
 	}
 	*dmabuf_fd = (int)data.fd;
-	LOGI("ret=%d, heap_fd=%d, len=%ld, dmabuf_fd=%d", ret, heap_fd, len, *dmabuf_fd);
+	ALOGI("[%s: %d ] ret=%d, heap_fd=%d, len=%ld, dmabuf_fd=%d", __func__, __LINE__,ret, heap_fd, len, *dmabuf_fd);
 	return ret;
 }
 
@@ -101,7 +102,7 @@ int aml_dmabuf_heap_alloc(int heap_fd, size_t len, int *dmabuf_fd)
 	int ret;
 	ret = dmabuf_heap_alloc_fdflags(heap_fd, len, O_RDWR | O_CLOEXEC, 0,
 					 dmabuf_fd);
-	LOGI("ret=%d, heap_fd=%d, len=%ld, dmabuf_fd=%d", ret, heap_fd, len, *dmabuf_fd);
+	ALOGI("[%s: %d ] ret=%d, heap_fd=%d, len=%ld, dmabuf_fd=%d", __func__, __LINE__, ret, heap_fd, len, *dmabuf_fd);
 	return ret;
 }
 
@@ -109,7 +110,7 @@ int aml_dmabuf_heap_alloc(int heap_fd, size_t len, int *dmabuf_fd)
 
 int aml_dmabuf_heap_free(int dmabuf_fd)
 {
-	LOGI("dmabuf_fd=%d", dmabuf_fd);
+	ALOGI("[%s: %d ] dmabuf_fd=%d", __func__, __LINE__, dmabuf_fd);
 	return close(dmabuf_fd);
 }
 
@@ -122,7 +123,7 @@ int aml_dmabuf_sync(int dmabuf_fd, int start_stop)
 		.flags = start_stop | DMA_BUF_SYNC_RW,
 	};
 
-	LOGI("dmabuf_fd=%d, start_stop=%d", dmabuf_fd, start_stop);
+	ALOGI("[%s: %d ] dmabuf_fd=%d, start_stop=%d", __func__, __LINE__, dmabuf_fd, start_stop);
 
 	return ioctl(dmabuf_fd, DMA_BUF_IOCTL_SYNC, &sync);
 }

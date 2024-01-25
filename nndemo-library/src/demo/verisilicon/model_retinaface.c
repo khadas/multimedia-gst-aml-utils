@@ -10,6 +10,8 @@
 /*-------------------------------------------
                 Includes
 -------------------------------------------*/
+#define LOG_TAG "model_retinaface"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

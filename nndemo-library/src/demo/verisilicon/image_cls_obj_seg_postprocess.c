@@ -10,6 +10,8 @@
 /*-------------------------------------------
                 Includes
 -------------------------------------------*/
+#define LOG_TAG "image_cls_obj_seg_postprocess"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -121,7 +123,7 @@ void* postprocess_yolov3(nn_output *pout)
 #if 1
     // support multiple thread
     // support INT8 input
-    LOGI("wo select multi thread path\n");
+    ALOGI("[%s: %d ] wo select multi thread path", __func__, __LINE__);
 
     // unsigned char *yolov3_buffer[3] = {NULL};
 
