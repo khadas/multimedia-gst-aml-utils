@@ -20,6 +20,7 @@
 #include <sys/types.h>
 #include <fcntl.h>
 #include "nn_util.h"
+#include "cv_postprocess.h"
 #define FLT_MAX 3.402823466e+38F
 /** Status enum */
 typedef enum
