@@ -108,6 +108,11 @@ struct _GstAmlNN {
   // postprocess thread
   ThreadInfo m_pp_thread;
 
+  //push result mutex
+  GMutex pr_mutex;
+
+  gboolean pr_ready;
+
   GstVideoInfo info;
   gboolean is_info_set;
 };

@@ -117,6 +117,8 @@ static gpointer overlay_process(void *data);
 
 /* GObject vmethod implementations */
 
+static GstStateChangeReturn gst_aml_nn_overlay_change_state(GstElement *element, GstStateChange transition);
+
 /* initialize the amloverlay's class */
 static void gst_aml_nn_overlay_class_init(GstAmlNNOverlayClass *klass) {
   GObjectClass *gobject_class;
@@ -179,8 +181,33 @@ static void gst_aml_nn_overlay_class_init(GstAmlNNOverlayClass *klass) {
 
   GST_BASE_TRANSFORM_CLASS(klass)->sink_event =
       GST_DEBUG_FUNCPTR(gst_aml_nn_overlay_event);
+
+  GST_ELEMENT_CLASS(klass)->change_state = GST_DEBUG_FUNCPTR(gst_aml_nn_overlay_change_state);
 }
 
+static gboolean send_custom_event(GstAmlNNOverlay *self) {
+        GstPad *srcpad = gst_element_get_static_pad(&self->element, "src");
+
+        GstEvent *event = gst_event_new_custom(GST_EVENT_CUSTOM_UPSTREAM, gst_structure_new_empty("gstamlnnoverlay-change-state"));
+        gst_pad_send_event(srcpad, event);
+        gst_object_unref(srcpad);
+        GST_INFO_OBJECT(self, "Exit");
+        return TRUE;
+}
+
+static GstStateChangeReturn gst_aml_nn_overlay_change_state(GstElement *element, GstStateChange transition){
+    GstStateChangeReturn ret;
+
+    GstAmlNNOverlay *self = GST_AMLNNOVERLAY(element);
+    GST_INFO_OBJECT(self, "Enter");
+    if (transition == GST_STATE_CHANGE_PAUSED_TO_READY) {
+        GST_INFO_OBJECT(self, "GST_STATE_CHANGE_PAUSED_TO_READY ");
+        send_custom_event(self);
+        GST_INFO_OBJECT(self, "Exit");
+    }
+    ret = GST_ELEMENT_CLASS(gst_aml_nn_overlay_parent_class)->change_state(element, transition);
+    return ret;
+}
 /* initialize the new element
  * initialize instance structure
  */
@@ -213,6 +240,7 @@ static void gst_aml_nn_overlay_init(GstAmlNNOverlay *self) {
 static void gst_aml_nn_overlay_finalize(GObject *object) {
   GstAmlNNOverlay *self = GST_AMLNNOVERLAY(object);
   GstAmlOverlay *base = GST_AMLOVERLAY_CAST(self);
+  GST_INFO_OBJECT(self, "start");
 
   self->m_running = FALSE;
 
@@ -225,6 +253,8 @@ static void gst_aml_nn_overlay_finalize(GObject *object) {
     g_thread_join(base->m_thread);
     base->m_thread = NULL;
   }
+
+  GST_INFO_OBJECT(self, "End");
 
   G_OBJECT_CLASS(parent_class)->finalize(object);
 }
@@ -256,6 +286,7 @@ static gboolean gst_aml_nn_overlay_stop(GstBaseTransform *trans) {
   }
 
   g_mutex_unlock(&self->nn.result.lock);
+  GST_INFO("Exit");
   return GST_BASE_TRANSFORM_CLASS(parent_class)->stop(trans);
 }
 
@@ -351,7 +382,7 @@ static gboolean gst_aml_nn_overlay_event(GstBaseTransform *trans,
                                          GstEvent *event) {
   GstAmlNNOverlay *self = GST_AMLNNOVERLAY(trans);
 
-  // GST_INFO_OBJECT(self, "Enter");
+  GST_INFO_OBJECT(self, "Enter");
 
   switch (GST_EVENT_TYPE(event)) {
   case GST_EVENT_CUSTOM_DOWNSTREAM_OOB: {
@@ -408,6 +439,9 @@ static gboolean gst_aml_nn_overlay_event(GstBaseTransform *trans,
       }
 
       gst_event_unref(event);
+
+      GST_INFO_OBJECT(self, "Exit");
+
       return FALSE;
     } else if (gst_structure_has_name(st, "nn-result-clear")) {
 

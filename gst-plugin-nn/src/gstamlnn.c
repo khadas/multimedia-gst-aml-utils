@@ -191,7 +191,8 @@ static gpointer amlnn_process(void *data);
 static gpointer amlnn_post_process(void *data);
 static void push_result(GstBaseTransform *base, NNResultBuffer *resbuf);
 /* GObject vmethod implementations */
-
+static gboolean gst_aml_nn_event(GstBaseTransform *trans,
+                                         GstEvent *event);
 
 /* initialize the amlnn's class */
 static void gst_aml_nn_class_init(GstAmlNNClass *klass) {
@@ -237,6 +238,9 @@ static void gst_aml_nn_class_init(GstAmlNNClass *klass) {
   GST_BASE_TRANSFORM_CLASS(klass)->stop = GST_DEBUG_FUNCPTR(gst_aml_nn_close);
 
   GST_BASE_TRANSFORM_CLASS(klass)->transform_ip_on_passthrough = FALSE;
+
+  GST_BASE_TRANSFORM_CLASS(klass)->src_event =
+      GST_DEBUG_FUNCPTR(gst_aml_nn_event);
 }
 
 
@@ -257,6 +261,9 @@ static void gst_aml_nn_init(GstAmlNN *self) {
   self->face_det.prepare_idx = -1;
   self->face_det.cur_nn_idx = -1;
   self->face_det.next_nn_idx = -1;
+
+  self->pr_ready = TRUE;
+  g_mutex_init(&self->pr_mutex);
 
   // nn main thread
   ThreadInfo *pThread = &self->m_nn_thread;
@@ -439,11 +446,14 @@ static gboolean gst_aml_nn_open(GstBaseTransform *base) {
 static gboolean gst_aml_nn_close(GstBaseTransform *base) {
   GstAmlNN *self = GST_AMLNN(base);
 
-  GST_DEBUG_OBJECT(self, "closing, waiting for lock");
+  GST_INFO(self, "closing, waiting for lock");
 
   // nn process
   ThreadInfo *pThread = &self->m_nn_thread;
+  ThreadInfo *ppThread = &self->m_pp_thread;
+
   pThread->m_running = FALSE;
+  ppThread->m_running = FALSE;
   g_mutex_lock(&pThread->m_mutex);
   pThread->m_ready = TRUE;
   g_cond_signal(&pThread->m_cond);
@@ -451,25 +461,29 @@ static gboolean gst_aml_nn_close(GstBaseTransform *base) {
 
   g_thread_join(pThread->m_thread);
   pThread->m_thread = NULL;
+
+  GST_INFO("nn process join done ");
 
   // nn post process
-  pThread = &self->m_pp_thread;
-  pThread->m_running = FALSE;
-  g_mutex_lock(&pThread->m_mutex);
-  pThread->m_ready = TRUE;
-  g_cond_signal(&pThread->m_cond);
-  g_mutex_unlock(&pThread->m_mutex);
+  g_mutex_lock(&ppThread->m_mutex);
+  ppThread->m_ready = TRUE;
+  g_cond_signal(&ppThread->m_cond);
+  g_mutex_unlock(&ppThread->m_mutex);
 
-  g_thread_join(pThread->m_thread);
-  pThread->m_thread = NULL;
+  g_thread_join(ppThread->m_thread);
+  ppThread->m_thread = NULL;
 
+  GST_INFO("nn post process join done");
   // gfx 2d
   if (self->m_gfxhandle) {
     gfx_deinit(self->m_gfxhandle);
     self->m_gfxhandle = NULL;
   }
 
-  GST_DEBUG_OBJECT(self, "closed");
+  // exiting
+  close_model(&self->face_det);
+
+  GST_INFO("closed");
 
   return TRUE;
 }
@@ -477,7 +491,22 @@ static gboolean gst_aml_nn_close(GstBaseTransform *base) {
 
 
 static void gst_aml_nn_finalize(GObject *object) {
+  GstAmlNN *self = GST_AMLNN(object);
+  GST_INFO("Enter");
   G_OBJECT_CLASS(parent_class)->finalize(object);
+
+  g_mutex_clear(&self->pr_mutex);
+
+  // nn main thread
+  ThreadInfo *pThread = &self->m_nn_thread;
+  g_cond_clear(&pThread->m_cond);
+  g_mutex_clear(&pThread->m_mutex);
+
+  // nn post process thread
+  pThread = &self->m_pp_thread;
+  g_cond_clear(&pThread->m_cond);
+  g_mutex_clear(&pThread->m_mutex);
+  self->pr_ready = FALSE;
 }
 
 
@@ -665,8 +694,7 @@ static gpointer amlnn_process(void *data) {
     }
   }
 
-  // exiting
-  close_model(&self->face_det);
+  GST_INFO_OBJECT(self, " exit");
 
   return NULL;
 }
@@ -677,38 +705,69 @@ static void push_result(GstBaseTransform *base,
                         NNResultBuffer *resbuf) {
   GstMapInfo info;
   GstAmlNN *self = GST_AMLNN(base);
+  ThreadInfo *PPThread = &self->m_pp_thread;
+  g_mutex_lock(&self->pr_mutex);
+  if (self->pr_ready) {
+    if (resbuf == NULL || resbuf->amount <= 0) {
+      GST_INFO_OBJECT(self, "nn-result-clear");
+      GstStructure *st = gst_structure_new("nn-result-clear", NULL, NULL);
+      GstEvent *event = gst_event_new_custom(GST_EVENT_CUSTOM_DOWNSTREAM_OOB, st);
+      gst_element_send_event(&base->element, event);
+      GST_INFO_OBJECT(self, "push_result nn-result-clear end");
+      g_mutex_unlock(&self->pr_mutex);
+      return;
+    }
 
-  if (resbuf == NULL || resbuf->amount <= 0) {
-    GST_INFO_OBJECT(self, "nn-result-clear");
-    GstStructure *st = gst_structure_new("nn-result-clear", NULL, NULL);
-    GstEvent *event = gst_event_new_custom(GST_EVENT_CUSTOM_DOWNSTREAM_OOB, st);
-    gst_element_send_event(&base->element, event);
-    return;
+    GST_INFO_OBJECT(self, "resbuf->amount=%d", resbuf->amount);
+
+    gint st_size = sizeof(NNResultBuffer);
+    gint res_size = resbuf->amount * sizeof(NNResult);
+
+    GstBuffer *gstbuf = gst_buffer_new_allocate(NULL, st_size + res_size, NULL);
+    if (gst_buffer_map(gstbuf, &info, GST_MAP_WRITE)) {
+      memcpy(info.data, resbuf, st_size);
+      memcpy(info.data + st_size, resbuf->results, res_size);
+      gst_buffer_unmap(gstbuf, &info);
+
+      GstStructure *st = gst_structure_new("nn-result", "result-buffer",
+                                           GST_TYPE_BUFFER, gstbuf, NULL);
+
+      GstEvent *event = gst_event_new_custom(GST_EVENT_CUSTOM_DOWNSTREAM_OOB, st);
+
+      GST_INFO_OBJECT(self, "gst_element_send_event to overlay");
+
+      gst_element_send_event(&base->element, event);
+      GST_INFO_OBJECT(self, "push_result result-buffer end");
+    }
+    gst_buffer_unref(gstbuf);
   }
-
-  GST_INFO_OBJECT(self, "resbuf->amount=%d", resbuf->amount);
-
-  gint st_size = sizeof(NNResultBuffer);
-  gint res_size = resbuf->amount * sizeof(NNResult);
-
-  GstBuffer *gstbuf = gst_buffer_new_allocate(NULL, st_size + res_size, NULL);
-  if (gst_buffer_map(gstbuf, &info, GST_MAP_WRITE)) {
-    memcpy(info.data, resbuf, st_size);
-    memcpy(info.data + st_size, resbuf->results, res_size);
-    gst_buffer_unmap(gstbuf, &info);
-
-    GstStructure *st = gst_structure_new("nn-result", "result-buffer",
-                                         GST_TYPE_BUFFER, gstbuf, NULL);
-
-    GstEvent *event = gst_event_new_custom(GST_EVENT_CUSTOM_DOWNSTREAM_OOB, st);
-
-    GST_INFO_OBJECT(self, "gst_element_send_event to overlay");
-
-    gst_element_send_event(&base->element, event);
-  }
-  gst_buffer_unref(gstbuf);
+  g_mutex_unlock(&self->pr_mutex);
+  return;
 }
 
+static gboolean gst_aml_nn_event(GstBaseTransform *trans,
+                                         GstEvent *event){
+    GstAmlNN *self = GST_AMLNN(trans);
+    GST_INFO_OBJECT(self, "enter");
+    switch (GST_EVENT_TYPE(event)) {
+        case GST_EVENT_CUSTOM_UPSTREAM: {
+            GST_INFO_OBJECT(self, "gstamlnnoverlay-change-state start");
+             const GstStructure *st = gst_event_get_structure(event);
+            if (gst_structure_has_name(st, "gstamlnnoverlay-change-state")) {
+                GST_INFO_OBJECT(self, "gstamlnnoverlay-change-state receive");
+                g_mutex_lock(&self->pr_mutex);
+                self->pr_ready = FALSE;
+                g_mutex_unlock(&self->pr_mutex);
+                GST_INFO_OBJECT(self, "nn event reslove");
+            }
+        }break;
+
+        default:
+            break;
+    }
+
+    return GST_BASE_TRANSFORM_CLASS(parent_class)->src_event(trans, event);
+}
 
 
 static gpointer amlnn_post_process(void *data) {
@@ -826,6 +885,8 @@ static gpointer amlnn_post_process(void *data) {
     frame_count++;
 #endif
   }
+
+  GST_INFO_OBJECT(self, "exit");
 
   return NULL;
 }
